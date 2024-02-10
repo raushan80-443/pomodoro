@@ -1,17 +1,7 @@
 # pomodoro
 Pomodoro Timer
 
-The Pomodoro Timer is a simple application that helps you manage your time using the Pomodoro Technique. It provides a structured approach to work and break intervals, allowing you to maximize productivity and maintain focus. The timer runs for 25 minutes of work time followed by a 5-minute break, and after every fourth work session, there is a longer break of 15 minutes.
-Features
-
-    Clean and intuitive user interface
-    Customizable work and break durations
-    Visual and audio notifications for work and break periods
-    Automatic repetition of work and break intervals
-    Displays the current session and remaining time
-
-Screenshots
-
+The Pomodoro Timer is a simple application that helps you manage your time using the Pomodoro Technique. 
 Pomodoro Timer
 How to Use
 
@@ -35,7 +25,7 @@ Run the Pomodoro timer:
 
     python pomo.py
 
-    The timer will start running with 25 minutes of work time followed by a 5-minute break. After every fourth work session, there will be a longer break of 15 minutes.
+    The timer will start running with 40 minutes of work time followed by a 4-minute break. After every 3rd work session, there will be a longer break of 16 minutes.
 
     To stop the timer, click the "Window" button, right-click on the terminal window running the Pomodoro timer, and select "Close" or "Quit" from the context menu.
 
