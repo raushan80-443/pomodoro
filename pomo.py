@@ -1,31 +1,315 @@
 import time
-import tkinter as tk
 
-# function to lock the screen
-def lock_screen(break_time):
-    # create a new window and make it full screen5
+
+MIN_DURATION_SECONDS = 60
+
+
+def _format_timer(seconds):
+    minutes, rem = divmod(max(0, int(seconds)), 60)
+    return f"{minutes:02d}:{rem:02d}"
+
+
+def run_work_session(work_seconds):
+    try:
+        import tkinter as tk
+    except ImportError:
+        print("tkinter is unavailable; work session runs without interactive controls.")
+        time.sleep(work_seconds)
+        return {
+            "plannedWorkSeconds": work_seconds,
+            "actualWorkSeconds": work_seconds,
+            "workEndedBy": "timer",
+            "interactionLog": [],
+        }
+
     root = tk.Tk()
-    root.attributes('-topmost', True, )
-    root.attributes('-fullscreen', True,)
-    root.configure(bg='black')
+    root.title("Pomodoro Work Session")
+    root.attributes("-topmost", True)
+    root.geometry("720x420")
+    root.configure(bg="#111827")
 
-    # add a label to display the lock screen message
-    label = tk.Label(root, text=f"Time for a break!  \n\n just go away turn of display \n\n break is more important ", font=("Helvetica", 36),fg="red",bg="black")
-    label.pack(expand=True)
+    started_at = time.time()
+    state = {
+        "remaining": max(MIN_DURATION_SECONDS, int(work_seconds)),
+        "go_break_now": False,
+        "interaction_log": [],
+    }
 
-    # update the window and wait for the break period to end
-    root.update()
+    title_label = tk.Label(
+        root,
+        text="Work Session",
+        font=("Helvetica", 28, "bold"),
+        fg="#F9FAFB",
+        bg="#111827",
+    )
+    title_label.pack(pady=20)
 
-    
-    time.sleep(break_time -10)
-    label = tk.Label(root, text="Get back to work! \n\n very important", font=("Helvetica", 36) ,fg="green",bg="black")
-   
-   
-    label.pack(expand=True)
-    root.update()
-    time.sleep(10)
+    timer_label = tk.Label(
+        root,
+        text=_format_timer(state["remaining"]),
+        font=("Helvetica", 72, "bold"),
+        fg="#34D399",
+        bg="#111827",
+    )
+    timer_label.pack(pady=20)
 
-    # destroy the window and unlock the screen
+    message_label = tk.Label(
+        root,
+        text="Stay focused. You can jump to break when needed.",
+        font=("Helvetica", 14),
+        fg="#D1D5DB",
+        bg="#111827",
+    )
+    message_label.pack(pady=10)
+
+    def go_on_break_now():
+        if state["go_break_now"]:
+            return
+        state["go_break_now"] = True
+        state["interaction_log"].append(
+            {"event": "goBreakNow", "at": int(time.time() - started_at)}
+        )
+
+    action_button = tk.Button(
+        root,
+        text="Go On Break Now",
+        font=("Helvetica", 16, "bold"),
+        bg="#F59E0B",
+        fg="#111827",
+        padx=16,
+        pady=10,
+        command=go_on_break_now,
+    )
+    action_button.pack(pady=24)
+
+    while state["remaining"] > 0 and not state["go_break_now"]:
+        timer_label.config(text=_format_timer(state["remaining"]))
+        root.update()
+        time.sleep(1)
+        state["remaining"] -= 1
+
+    actual_work_seconds = int(time.time() - started_at)
+    ended_by = "userBreakNow" if state["go_break_now"] else "timer"
+
     root.destroy()
 
+    return {
+        "plannedWorkSeconds": max(MIN_DURATION_SECONDS, int(work_seconds)),
+        "actualWorkSeconds": max(1, actual_work_seconds),
+        "workEndedBy": ended_by,
+        "interactionLog": state["interaction_log"],
+    }
 
+
+def run_break_session(break_seconds, default_next_work_seconds, default_next_break_seconds):
+    try:
+        import tkinter as tk
+    except ImportError:
+        print("tkinter is unavailable; break session runs without interactive controls.")
+        time.sleep(break_seconds)
+        return {
+            "plannedBreakSeconds": break_seconds,
+            "actualBreakSeconds": break_seconds,
+            "breakEndedBy": "timer",
+            "nextWorkSeconds": default_next_work_seconds,
+            "nextBreakSeconds": default_next_break_seconds,
+            "interactionLog": [],
+        }
+
+    root = tk.Tk()
+    root.title("Pomodoro Break Session")
+    root.attributes("-topmost", True)
+    root.geometry("960x640")
+    root.configure(bg="#030712")
+
+    started_at = time.time()
+    state = {
+        "remaining": max(MIN_DURATION_SECONDS, int(break_seconds)),
+        "end_break_now": False,
+        "next_work": max(MIN_DURATION_SECONDS, int(default_next_work_seconds)),
+        "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
+        "interaction_log": [],
+    }
+
+    title_label = tk.Label(
+        root,
+        text="Break Time",
+        font=("Helvetica", 30, "bold"),
+        fg="#F9FAFB",
+        bg="#030712",
+    )
+    title_label.pack(pady=16)
+
+    timer_label = tk.Label(
+        root,
+        text=_format_timer(state["remaining"]),
+        font=("Helvetica", 78, "bold"),
+        fg="#60A5FA",
+        bg="#030712",
+    )
+    timer_label.pack(pady=10)
+
+    current_break_label = tk.Label(
+        root,
+        text="Current Break Length",
+        font=("Helvetica", 14, "bold"),
+        fg="#E5E7EB",
+        bg="#030712",
+    )
+    current_break_label.pack(pady=(18, 8))
+
+    control_row = tk.Frame(root, bg="#030712")
+    control_row.pack(pady=8)
+
+    break_length_label = tk.Label(
+        control_row,
+        text=_format_timer(state["remaining"]),
+        font=("Helvetica", 18, "bold"),
+        fg="#93C5FD",
+        bg="#030712",
+        width=8,
+    )
+
+    def update_break_duration(delta_seconds):
+        state["remaining"] = max(MIN_DURATION_SECONDS, state["remaining"] + delta_seconds)
+        break_length_label.config(text=_format_timer(state["remaining"]))
+        state["interaction_log"].append(
+            {
+                "event": "adjustCurrentBreak",
+                "deltaSeconds": delta_seconds,
+                "at": int(time.time() - started_at),
+                "newCurrentBreakSeconds": state["remaining"],
+            }
+        )
+
+    tk.Button(
+        control_row,
+        text="-1 min",
+        font=("Helvetica", 12, "bold"),
+        bg="#EF4444",
+        fg="#F9FAFB",
+        padx=10,
+        command=lambda: update_break_duration(-60),
+    ).pack(side="left", padx=6)
+
+    break_length_label.pack(side="left", padx=8)
+
+    tk.Button(
+        control_row,
+        text="+1 min",
+        font=("Helvetica", 12, "bold"),
+        bg="#10B981",
+        fg="#F9FAFB",
+        padx=10,
+        command=lambda: update_break_duration(60),
+    ).pack(side="left", padx=6)
+
+    next_row = tk.Frame(root, bg="#030712")
+    next_row.pack(pady=24)
+
+    next_work_label = tk.Label(
+        next_row,
+        text=f"Next Work: {_format_timer(state['next_work'])}",
+        font=("Helvetica", 14, "bold"),
+        fg="#FDE68A",
+        bg="#030712",
+    )
+    next_work_label.grid(row=0, column=0, padx=12, pady=8)
+
+    next_break_label = tk.Label(
+        next_row,
+        text=f"Next Break: {_format_timer(state['next_break'])}",
+        font=("Helvetica", 14, "bold"),
+        fg="#A7F3D0",
+        bg="#030712",
+    )
+    next_break_label.grid(row=1, column=0, padx=12, pady=8)
+
+    def update_next_work(delta_seconds):
+        state["next_work"] = max(MIN_DURATION_SECONDS, state["next_work"] + delta_seconds)
+        next_work_label.config(text=f"Next Work: {_format_timer(state['next_work'])}")
+        state["interaction_log"].append(
+            {
+                "event": "adjustNextWork",
+                "deltaSeconds": delta_seconds,
+                "at": int(time.time() - started_at),
+                "nextWorkSeconds": state["next_work"],
+            }
+        )
+
+    tk.Button(
+        next_row,
+        text="Work -5 min",
+        font=("Helvetica", 11, "bold"),
+        bg="#DC2626",
+        fg="#F9FAFB",
+        command=lambda: update_next_work(-300),
+    ).grid(row=0, column=1, padx=6)
+
+    tk.Button(
+        next_row,
+        text="Work +5 min",
+        font=("Helvetica", 11, "bold"),
+        bg="#059669",
+        fg="#F9FAFB",
+        command=lambda: update_next_work(300),
+    ).grid(row=0, column=2, padx=6)
+
+    tk.Button(
+        next_row,
+        text="Break fixed to default",
+        font=("Helvetica", 11, "bold"),
+        bg="#1F2937",
+        fg="#D1D5DB",
+        state="disabled",
+        disabledforeground="#D1D5DB",
+    ).grid(row=1, column=1, columnspan=2, padx=6)
+
+    def end_break_now():
+        if state["end_break_now"]:
+            return
+        state["end_break_now"] = True
+        state["interaction_log"].append(
+            {"event": "endBreakNow", "at": int(time.time() - started_at)}
+        )
+
+    tk.Button(
+        root,
+        text="End Break Now",
+        font=("Helvetica", 16, "bold"),
+        bg="#F59E0B",
+        fg="#111827",
+        padx=18,
+        pady=10,
+        command=end_break_now,
+    ).pack(pady=18)
+
+    while state["remaining"] > 0 and not state["end_break_now"]:
+        timer_label.config(text=_format_timer(state["remaining"]))
+        break_length_label.config(text=_format_timer(state["remaining"]))
+        root.update()
+        time.sleep(1)
+        state["remaining"] -= 1
+
+    actual_break_seconds = int(time.time() - started_at)
+    ended_by = "userEndBreakNow" if state["end_break_now"] else "timer"
+
+    root.destroy()
+
+    return {
+        "plannedBreakSeconds": max(MIN_DURATION_SECONDS, int(break_seconds)),
+        "actualBreakSeconds": max(1, actual_break_seconds),
+        "breakEndedBy": ended_by,
+        "nextWorkSeconds": state["next_work"],
+        "nextBreakSeconds": state["next_break"],
+        "interactionLog": state["interaction_log"],
+    }
+
+
+def lock_screen(break_time):
+    result = run_break_session(
+        break_seconds=break_time,
+        default_next_work_seconds=40 * 60,
+        default_next_break_seconds=4 * 60,
+    )
+    return result
