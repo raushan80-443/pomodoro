@@ -9,7 +9,12 @@ import sys
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
 
-from pomo import run_break_session, run_work_session
+try:
+    # When run as a package (python -m pomodoro) use a relative import.
+    from .pomo import run_break_session, run_work_session
+except Exception:
+    # Fallback for running modules directly in development (python -c).
+    from pomo import run_break_session, run_work_session
 
 
 ROOT_DIR = Path(__file__).resolve().parent

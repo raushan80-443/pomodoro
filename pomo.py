@@ -1,7 +1,73 @@
+import os
 import time
+from pathlib import Path
 
 
 MIN_DURATION_SECONDS = 60
+
+
+def _candidate_display_envs():
+    displays = []
+    current_display = os.environ.get("DISPLAY")
+    if current_display:
+        displays.append(current_display)
+
+    for fallback_display in (":0", ":1"):
+        if fallback_display not in displays:
+            displays.append(fallback_display)
+
+    xauthority_paths = []
+    current_xauthority = os.environ.get("XAUTHORITY")
+    if current_xauthority:
+        xauthority_paths.append(Path(current_xauthority))
+
+    home_xauthority = Path.home() / ".Xauthority"
+    if home_xauthority.exists() and home_xauthority not in xauthority_paths:
+        xauthority_paths.append(home_xauthority)
+
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    if runtime_dir.exists():
+        for candidate in sorted(runtime_dir.glob("xauth_*")):
+            if candidate not in xauthority_paths:
+                xauthority_paths.append(candidate)
+
+    if not xauthority_paths:
+        xauthority_paths.append(Path.home() / ".Xauthority")
+
+    for display in displays:
+        for xauthority in xauthority_paths:
+            yield display, xauthority
+
+
+def _create_tk_root(window_title):
+    import tkinter as tk
+
+    last_error = None
+    for display, xauthority in _candidate_display_envs():
+        previous_display = os.environ.get("DISPLAY")
+        previous_xauthority = os.environ.get("XAUTHORITY")
+
+        os.environ["DISPLAY"] = display
+        if xauthority:
+            os.environ["XAUTHORITY"] = str(xauthority)
+
+        try:
+            root = tk.Tk()
+            root.title(window_title)
+            return root
+        except Exception as error:
+            last_error = error
+            if previous_display is None:
+                os.environ.pop("DISPLAY", None)
+            else:
+                os.environ["DISPLAY"] = previous_display
+
+            if previous_xauthority is None:
+                os.environ.pop("XAUTHORITY", None)
+            else:
+                os.environ["XAUTHORITY"] = previous_xauthority
+
+    raise last_error
 
 
 def _format_timer(seconds):
@@ -11,7 +77,7 @@ def _format_timer(seconds):
 
 def run_work_session(work_seconds):
     try:
-        import tkinter as tk
+        root = _create_tk_root("Pomodoro Work Session")
     except ImportError:
         print("tkinter is unavailable; work session runs without interactive controls.")
         time.sleep(work_seconds)
@@ -21,10 +87,18 @@ def run_work_session(work_seconds):
             "workEndedBy": "timer",
             "interactionLog": [],
         }
+    except Exception:
+        print("tkinter is available but cannot open a display; running headless.")
+        time.sleep(work_seconds)
+        return {
+            "plannedWorkSeconds": work_seconds,
+            "actualWorkSeconds": work_seconds,
+            "workEndedBy": "timer",
+            "interactionLog": [],
+        }
+    import tkinter as tk
 
-    root = tk.Tk()
-    root.title("Pomodoro Work Session")
-    # keep the work session out of the way: do not make topmost and iconify
+    # keep the work session out of the way: do not make it topmost or foreground
     root.attributes("-topmost", False)
     root.geometry("720x420")
     root.iconify()
@@ -105,7 +179,7 @@ def run_work_session(work_seconds):
 
 def run_break_session(break_seconds, default_next_work_seconds, default_next_break_seconds):
     try:
-        import tkinter as tk
+        root = _create_tk_root("Pomodoro Break Session")
     except ImportError:
         print("tkinter is unavailable; break session runs without interactive controls.")
         time.sleep(break_seconds)
@@ -118,9 +192,20 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             "interactionLog": [],
             "exitApp": False,
         }
+    except Exception:
+        print("tkinter is available but cannot open a display; running headless.")
+        time.sleep(break_seconds)
+        return {
+            "plannedBreakSeconds": break_seconds,
+            "actualBreakSeconds": break_seconds,
+            "breakEndedBy": "timer",
+            "nextWorkSeconds": default_next_work_seconds,
+            "nextBreakSeconds": default_next_break_seconds,
+            "interactionLog": [],
+            "exitApp": False,
+        }
+    import tkinter as tk
 
-    root = tk.Tk()
-    root.title("Pomodoro Break Session")
     # make the break session full screen and remove window decorations
     root.update_idletasks()
     try:

@@ -114,7 +114,7 @@
       "nextSessionWorkSeconds": 2400,
       "nextSessionBreakSeconds": 240,
       "interactionLog": [],
-      "syncStatus": "pending"
+      "syncStatus": "synced"
     },
     {
       "sessionId": "5d5a0dcf-5b14-4999-a7b8-6a8e7807e45b",
@@ -137,7 +137,142 @@
           "at": 2
         }
       ],
-      "syncStatus": "pending"
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "df4ce408-efef-4c7d-8c46-9a8c72669d2b",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T02:43:28.393854Z",
+      "sessionCompletedAt": "2026-05-24T02:43:54.626414Z",
+      "workTimeMinutes": 0.38,
+      "workTimeSeconds": 23,
+      "breakTimeMinutes": 0.05,
+      "breakTimeSeconds": 3,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userExit",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 22
+        },
+        {
+          "event": "exitApp",
+          "at": 2
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "5b55d114-a11b-424b-bc1d-e0a3691b2367",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T02:52:36.688649Z",
+      "sessionCompletedAt": "2026-05-24T02:52:51.988669Z",
+      "workTimeMinutes": 0.2,
+      "workTimeSeconds": 12,
+      "breakTimeMinutes": 0.05,
+      "breakTimeSeconds": 3,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userExit",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 11
+        },
+        {
+          "event": "exitApp",
+          "at": 2
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "0ddb8613-f6fc-4681-ba13-a922469cfaf0",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T02:57:31.236600Z",
+      "sessionCompletedAt": "2026-05-24T02:57:59.449845Z",
+      "workTimeMinutes": 0.42,
+      "workTimeSeconds": 25,
+      "breakTimeMinutes": 0.05,
+      "breakTimeSeconds": 3,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 24
+        },
+        {
+          "event": "endBreakNow",
+          "at": 2
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "d73cb77a-9833-4c5b-be48-917f14f7dbfe",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T03:02:04.140439Z",
+      "sessionCompletedAt": "2026-05-24T03:02:22.296528Z",
+      "workTimeMinutes": 0.23,
+      "workTimeSeconds": 14,
+      "breakTimeMinutes": 0.07,
+      "breakTimeSeconds": 4,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 13
+        },
+        {
+          "event": "endBreakNow",
+          "at": 3
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "62c6a1b8-f221-4ad1-a537-167a4aa89e92",
+      "cycle": 2,
+      "sessionStartedAt": "2026-05-24T03:02:25.268528Z",
+      "sessionCompletedAt": "2026-05-24T03:02:33.403198Z",
+      "workTimeMinutes": 0.08,
+      "workTimeSeconds": 5,
+      "breakTimeMinutes": 0.05,
+      "breakTimeSeconds": 3,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 4
+        },
+        {
+          "event": "endBreakNow",
+          "at": 2
+        }
+      ],
+      "syncStatus": "synced"
     }
   ]
 }
