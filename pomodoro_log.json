@@ -1,5 +1,143 @@
 {
   "appName": "pomodoro",
   "createdAt": "2026-05-23T00:00:00Z",
-  "events": []
+  "events": [
+    {
+      "sessionId": "4ee90148-6b74-4908-b4a3-8c2df06feaa8",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T01:58:58.996008Z",
+      "sessionCompletedAt": "2026-05-24T01:59:30.237968Z",
+      "workTimeMinutes": 0.15,
+      "workTimeSeconds": 9,
+      "breakTimeMinutes": 0.37,
+      "breakTimeSeconds": 22,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 300,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 8
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 11,
+          "nextWorkSeconds": 2100
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 12,
+          "nextWorkSeconds": 1800
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 12,
+          "nextWorkSeconds": 1500
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 13,
+          "nextWorkSeconds": 1200
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 14,
+          "nextWorkSeconds": 900
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 15,
+          "nextWorkSeconds": 600
+        },
+        {
+          "event": "adjustNextWork",
+          "deltaSeconds": -300,
+          "at": 16,
+          "nextWorkSeconds": 300
+        },
+        {
+          "event": "endBreakNow",
+          "at": 21
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "dca6fd10-1ce4-47d7-a65c-03937bea675e",
+      "cycle": 2,
+      "sessionStartedAt": "2026-05-24T01:59:33.324370Z",
+      "sessionCompletedAt": "2026-05-24T02:01:42.619773Z",
+      "workTimeMinutes": 0.18,
+      "workTimeSeconds": 11,
+      "breakTimeMinutes": 1.97,
+      "breakTimeSeconds": 118,
+      "plannedWorkSeconds": 300,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 10
+        },
+        {
+          "event": "endBreakNow",
+          "at": 117
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "6a261834-197e-4bfa-a088-3bdf3e37fdd7",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T02:06:15.187875Z",
+      "sessionCompletedAt": "2026-05-24T02:08:15.400292Z",
+      "workTimeMinutes": 1.0,
+      "workTimeSeconds": 60,
+      "breakTimeMinutes": 1.0,
+      "breakTimeSeconds": 60,
+      "plannedWorkSeconds": 60,
+      "plannedBreakSeconds": 60,
+      "workEndedBy": "timer",
+      "breakEndedBy": "timer",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [],
+      "syncStatus": "pending"
+    },
+    {
+      "sessionId": "5d5a0dcf-5b14-4999-a7b8-6a8e7807e45b",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T02:07:25.294514Z",
+      "sessionCompletedAt": "2026-05-24T02:08:28.444327Z",
+      "workTimeMinutes": 1.0,
+      "workTimeSeconds": 60,
+      "breakTimeMinutes": 0.05,
+      "breakTimeSeconds": 3,
+      "plannedWorkSeconds": 60,
+      "plannedBreakSeconds": 60,
+      "workEndedBy": "timer",
+      "breakEndedBy": "timer",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "exitApp",
+          "at": 2
+        }
+      ],
+      "syncStatus": "pending"
+    }
+  ]
 }

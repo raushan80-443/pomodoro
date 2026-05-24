@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import time
 from uuid import uuid4
+import sys
 
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
@@ -171,6 +172,12 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         "interactionLog": work_result["interactionLog"] + break_result["interactionLog"],
     }
     log_session(session_record)
+
+    # If user hit Exit during the break, save and terminate the program.
+    if break_result.get("exitApp"):
+        print("Exit requested during break — saved session, quitting.")
+        sync_pending_sessions()
+        sys.exit(0)
 
     return {
         "nextWorkSeconds": break_result["nextWorkSeconds"],

@@ -24,8 +24,10 @@ def run_work_session(work_seconds):
 
     root = tk.Tk()
     root.title("Pomodoro Work Session")
-    root.attributes("-topmost", True)
+    # keep the work session out of the way: do not make topmost and iconify
+    root.attributes("-topmost", False)
     root.geometry("720x420")
+    root.iconify()
     root.configure(bg="#111827")
 
     started_at = time.time()
@@ -114,25 +116,77 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             "nextWorkSeconds": default_next_work_seconds,
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
+            "exitApp": False,
         }
 
     root = tk.Tk()
     root.title("Pomodoro Break Session")
-    root.attributes("-topmost", True)
-    root.geometry("960x640")
+    # make the break session full screen and remove window decorations
+    root.update_idletasks()
+    try:
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        root.geometry(f"{sw}x{sh}+0+0")
+    except Exception:
+        pass
+    try:
+        root.attributes("-fullscreen", True)
+    except Exception:
+        pass
+    # remove window manager decorations so user cannot minimize/close
+    try:
+        root.overrideredirect(True)
+    except Exception:
+        pass
     root.configure(bg="#030712")
+    # Try to make the break window always on top and capture input so other
+    # applications cannot be brought forward while the break is active.
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+    try:
+        root.lift()
+        root.focus_force()
+    except Exception:
+        pass
+    # Try to grab all input (best-effort; some window managers may prevent this)
+    try:
+        root.grab_set_global()
+    except Exception:
+        try:
+            root.grab_set()
+        except Exception:
+            pass
+    # If focus is lost, immediately re-focus the break window
+    try:
+        def _on_focus_out(event):
+            try:
+                root.lift()
+                root.focus_force()
+            except Exception:
+                pass
+
+        root.bind("<FocusOut>", _on_focus_out)
+    except Exception:
+        pass
 
     started_at = time.time()
     state = {
         "remaining": max(MIN_DURATION_SECONDS, int(break_seconds)),
         "end_break_now": False,
+        "exit_app": False,
         "next_work": max(MIN_DURATION_SECONDS, int(default_next_work_seconds)),
         "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
         "interaction_log": [],
     }
 
+    # Central container for all break UI elements
+    main_frame = tk.Frame(root, bg="#030712")
+    main_frame.pack(expand=True)
+
     title_label = tk.Label(
-        root,
+        main_frame,
         text="Break Time",
         font=("Helvetica", 30, "bold"),
         fg="#F9FAFB",
@@ -141,7 +195,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
     title_label.pack(pady=16)
 
     timer_label = tk.Label(
-        root,
+        main_frame,
         text=_format_timer(state["remaining"]),
         font=("Helvetica", 78, "bold"),
         fg="#60A5FA",
@@ -150,7 +204,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
     timer_label.pack(pady=10)
 
     current_break_label = tk.Label(
-        root,
+        main_frame,
         text="Current Break Length",
         font=("Helvetica", 14, "bold"),
         fg="#E5E7EB",
@@ -158,7 +212,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
     )
     current_break_label.pack(pady=(18, 8))
 
-    control_row = tk.Frame(root, bg="#030712")
+    control_row = tk.Frame(main_frame, bg="#030712")
     control_row.pack(pady=8)
 
     break_length_label = tk.Label(
@@ -204,7 +258,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         command=lambda: update_break_duration(60),
     ).pack(side="left", padx=6)
 
-    next_row = tk.Frame(root, bg="#030712")
+    next_row = tk.Frame(main_frame, bg="#030712")
     next_row.pack(pady=24)
 
     next_work_label = tk.Label(
@@ -215,16 +269,6 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         bg="#030712",
     )
     next_work_label.grid(row=0, column=0, padx=12, pady=8)
-
-    next_break_label = tk.Label(
-        next_row,
-        text=f"Next Break: {_format_timer(state['next_break'])}",
-        font=("Helvetica", 14, "bold"),
-        fg="#A7F3D0",
-        bg="#030712",
-    )
-    next_break_label.grid(row=1, column=0, padx=12, pady=8)
-
     def update_next_work(delta_seconds):
         state["next_work"] = max(MIN_DURATION_SECONDS, state["next_work"] + delta_seconds)
         next_work_label.config(text=f"Next Work: {_format_timer(state['next_work'])}")
@@ -255,15 +299,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         command=lambda: update_next_work(300),
     ).grid(row=0, column=2, padx=6)
 
-    tk.Button(
-        next_row,
-        text="Break fixed to default",
-        font=("Helvetica", 11, "bold"),
-        bg="#1F2937",
-        fg="#D1D5DB",
-        state="disabled",
-        disabledforeground="#D1D5DB",
-    ).grid(row=1, column=1, columnspan=2, padx=6)
+    # removed 'Next Break' and related disabled control per user request
 
     def end_break_now():
         if state["end_break_now"]:
@@ -273,8 +309,16 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             {"event": "endBreakNow", "at": int(time.time() - started_at)}
         )
 
+    def exit_app():
+        if state["exit_app"]:
+            return
+        state["exit_app"] = True
+        state["interaction_log"].append(
+            {"event": "exitApp", "at": int(time.time() - started_at)}
+        )
+
     tk.Button(
-        root,
+        main_frame,
         text="End Break Now",
         font=("Helvetica", 16, "bold"),
         bg="#F59E0B",
@@ -284,7 +328,20 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         command=end_break_now,
     ).pack(pady=18)
 
-    while state["remaining"] > 0 and not state["end_break_now"]:
+    # Exit button (terminates the program after saving) — centered
+    exit_btn = tk.Button(
+        main_frame,
+        text="Exit",
+        font=("Helvetica", 12, "bold"),
+        bg="#EF4444",
+        fg="#F9FAFB",
+        padx=12,
+        pady=6,
+        command=exit_app,
+    )
+    exit_btn.pack()
+
+    while state["remaining"] > 0 and not state["end_break_now"] and not state["exit_app"]:
         timer_label.config(text=_format_timer(state["remaining"]))
         break_length_label.config(text=_format_timer(state["remaining"]))
         root.update()
@@ -292,7 +349,10 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         state["remaining"] -= 1
 
     actual_break_seconds = int(time.time() - started_at)
-    ended_by = "userEndBreakNow" if state["end_break_now"] else "timer"
+    if state["exit_app"]:
+        ended_by = "userExit"
+    else:
+        ended_by = "userEndBreakNow" if state["end_break_now"] else "timer"
 
     root.destroy()
 
@@ -300,6 +360,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         "plannedBreakSeconds": max(MIN_DURATION_SECONDS, int(break_seconds)),
         "actualBreakSeconds": max(1, actual_break_seconds),
         "breakEndedBy": ended_by,
+        "exitApp": state.get("exit_app", False),
         "nextWorkSeconds": state["next_work"],
         "nextBreakSeconds": state["next_break"],
         "interactionLog": state["interaction_log"],
