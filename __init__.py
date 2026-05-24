@@ -192,6 +192,7 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         "nextSessionWorkSeconds": break_result["nextWorkSeconds"],
         "nextSessionBreakSeconds": break_result["nextBreakSeconds"],
         "interactionLog": work_result["interactionLog"] + break_result["interactionLog"],
+            "productivityRating": break_result.get("productivityRating", 0),  # Default to 0 if not present
     }
     log_session(session_record)
 

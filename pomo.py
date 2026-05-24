@@ -230,6 +230,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             "nextWorkSeconds": default_next_work_seconds,
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
+            "productivityRating": None,
             "exitApp": False,
         }
     except Exception as error:
@@ -242,6 +243,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             "nextWorkSeconds": default_next_work_seconds,
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
+            "productivityRating": None,
             "exitApp": False,
         }
     import tkinter as tk
@@ -304,6 +306,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         "next_work": max(MIN_DURATION_SECONDS, int(default_next_work_seconds)),
         "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
         "interaction_log": [],
+        "productivity_rating": None,
     }
 
     # Central container for all break UI elements
@@ -424,6 +427,44 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         command=lambda: update_next_work(300),
     ).grid(row=0, column=2, padx=6)
 
+    # Productivity rating: 1 (non-productive) .. 5 (productive)
+    rating_label = tk.Label(
+        main_frame,
+        text="Rate this break (1 = non-productive, 5 = productive)",
+        font=("Helvetica", 14, "bold"),
+        fg="#E5E7EB",
+        bg="#030712",
+    )
+    rating_label.pack(pady=(12, 6))
+
+    def _on_rating_change(val):
+        try:
+            rating = int(float(val))
+        except Exception:
+            return
+        state["productivity_rating"] = rating
+        state["interaction_log"].append(
+            {"event": "setProductivity", "rating": rating, "at": int(time.time() - started_at)}
+        )
+
+    rating_scale = tk.Scale(
+        main_frame,
+        from_=1,
+        to=5,
+        orient="horizontal",
+        length=320,
+        bg="#030712",
+        fg="#F9FAFB",
+        troughcolor="#1E293B",
+        showvalue=True,
+        resolution=1,
+        command=_on_rating_change,
+    )
+    # default to neutral 3 so sessions always have a rating when GUI used
+    rating_scale.set(3)
+    state["productivity_rating"] = 3
+    rating_scale.pack(pady=(0, 12))
+
     # removed 'Next Break' and related disabled control per user request
 
     def end_break_now():
@@ -489,6 +530,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         "nextWorkSeconds": state["next_work"],
         "nextBreakSeconds": state["next_break"],
         "interactionLog": state["interaction_log"],
+        "productivityRating": state.get("productivity_rating"),
     }
 
 

@@ -273,6 +273,79 @@
         }
       ],
       "syncStatus": "synced"
+    },
+    {
+      "sessionId": "5e6ca739-19fe-486e-a36f-d340c406daed",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T08:02:48.754870Z",
+      "sessionCompletedAt": "2026-05-24T08:42:53.950254Z",
+      "workTimeMinutes": 40.0,
+      "workTimeSeconds": 2400,
+      "breakTimeMinutes": 0.08,
+      "breakTimeSeconds": 5,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "timer",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "endBreakNow",
+          "at": 4
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "c33893df-b0b1-4057-808a-5f512db8c290",
+      "cycle": 1,
+      "sessionStartedAt": "2026-05-24T08:21:44.419297Z",
+      "sessionCompletedAt": "2026-05-24T09:01:55.146340Z",
+      "workTimeMinutes": 40.03,
+      "workTimeSeconds": 2402,
+      "breakTimeMinutes": 0.13,
+      "breakTimeSeconds": 8,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "timer",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "endBreakNow",
+          "at": 7
+        }
+      ],
+      "syncStatus": "synced"
+    },
+    {
+      "sessionId": "670f78bb-7321-493f-bfcb-07c03fb3d072",
+      "cycle": 2,
+      "sessionStartedAt": "2026-05-24T08:42:58.228478Z",
+      "sessionCompletedAt": "2026-05-24T09:07:30.768669Z",
+      "workTimeMinutes": 21.47,
+      "workTimeSeconds": 1288,
+      "breakTimeMinutes": 3.07,
+      "breakTimeSeconds": 184,
+      "plannedWorkSeconds": 2400,
+      "plannedBreakSeconds": 240,
+      "workEndedBy": "userBreakNow",
+      "breakEndedBy": "userEndBreakNow",
+      "nextSessionWorkSeconds": 2400,
+      "nextSessionBreakSeconds": 240,
+      "interactionLog": [
+        {
+          "event": "goBreakNow",
+          "at": 1287
+        },
+        {
+          "event": "endBreakNow",
+          "at": 183
+        }
+      ],
+      "syncStatus": "synced"
     }
   ]
 }
