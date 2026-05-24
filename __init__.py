@@ -189,8 +189,7 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         "plannedBreakSeconds": break_result["plannedBreakSeconds"],
         "workEndedBy": work_result["workEndedBy"],
         "breakEndedBy": break_result["breakEndedBy"],
-        "nextSessionWorkSeconds": break_result["nextWorkSeconds"],
-        "nextSessionBreakSeconds": break_result["nextBreakSeconds"],
+        # Removed nextSessionWorkSeconds/nextSessionBreakSeconds by design
         "interactionLog": work_result["interactionLog"] + break_result["interactionLog"],
             "productivityRating": break_result.get("productivityRating", 0),  # Default to 0 if not present
     }
@@ -202,10 +201,8 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         sync_pending_sessions()
         sys.exit(0)
 
-    return {
-        "nextWorkSeconds": break_result["nextWorkSeconds"],
-        "nextBreakSeconds": break_result["nextBreakSeconds"],
-    }
+    # No return value needed; caller should not rely on nextWork/nextBreak values.
+    return None
 
 
 def main():
@@ -231,18 +228,16 @@ def main():
         next_work_override = None
         next_break_override = None
 
-        cycle_result = run_pomodoro_cycle(
+        # run_pomodoro_cycle no longer returns next-work/next-break values
+        run_pomodoro_cycle(
             cycle_number=cycle_number,
             work_seconds=work_seconds,
             break_seconds=break_seconds,
         )
 
-        next_work_seconds = cycle_result.get("nextWorkSeconds", WORK_TIME_SECONDS)
-        next_break_seconds = cycle_result.get("nextBreakSeconds", BREAK_TIME_SECONDS)
-
-        if next_work_seconds != WORK_TIME_SECONDS or next_break_seconds != BREAK_TIME_SECONDS:
-            next_work_override = next_work_seconds
-            next_break_override = next_break_seconds
+        # There is no returned override from the cycle; use defaults.
+        next_work_seconds = WORK_TIME_SECONDS
+        next_break_seconds = BREAK_TIME_SECONDS
 
 
 if __name__ == "__main__":
