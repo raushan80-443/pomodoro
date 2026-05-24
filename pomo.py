@@ -4,6 +4,20 @@ from pathlib import Path
 
 
 MIN_DURATION_SECONDS = 60
+_HEADLESS_WARNING_EMITTED = False
+
+
+def _warn_headless_once(error):
+    global _HEADLESS_WARNING_EMITTED
+    if _HEADLESS_WARNING_EMITTED:
+        return
+
+    _HEADLESS_WARNING_EMITTED = True
+    print(f"GUI unavailable ({error}); running headless.")
+    if not os.environ.get("DISPLAY"):
+        print(
+            "Hint: set DISPLAY/XAUTHORITY for pomodoro.service (or import env in systemd --user)."
+        )
 
 
 def _candidate_display_envs():
@@ -75,6 +89,32 @@ def _format_timer(seconds):
     return f"{minutes:02d}:{rem:02d}"
 
 
+def wait_for_display(initial_delay_seconds=60, retry_seconds=60):
+    initial_delay = max(0, int(initial_delay_seconds))
+    retry_delay = max(1, int(retry_seconds))
+
+    if initial_delay:
+        print(f"Waiting {initial_delay}s before first GUI display check.")
+        time.sleep(initial_delay)
+
+    while True:
+        try:
+            root = _create_tk_root("Pomodoro Display Check")
+            root.withdraw()
+            root.update_idletasks()
+            root.destroy()
+            print("GUI display is available. Starting pomodoro cycles.")
+            return True
+        except ImportError:
+            print("tkinter is unavailable; continuing in headless mode.")
+            return False
+        except Exception as error:
+            print(
+                f"Display unavailable ({error}); retrying in {retry_delay}s until display is ready."
+            )
+            time.sleep(retry_delay)
+
+
 def run_work_session(work_seconds):
     try:
         root = _create_tk_root("Pomodoro Work Session")
@@ -87,8 +127,8 @@ def run_work_session(work_seconds):
             "workEndedBy": "timer",
             "interactionLog": [],
         }
-    except Exception:
-        print("tkinter is available but cannot open a display; running headless.")
+    except Exception as error:
+        _warn_headless_once(error)
         time.sleep(work_seconds)
         return {
             "plannedWorkSeconds": work_seconds,
@@ -192,8 +232,8 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
             "interactionLog": [],
             "exitApp": False,
         }
-    except Exception:
-        print("tkinter is available but cannot open a display; running headless.")
+    except Exception as error:
+        _warn_headless_once(error)
         time.sleep(break_seconds)
         return {
             "plannedBreakSeconds": break_seconds,

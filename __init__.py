@@ -11,10 +11,10 @@ from pymongo.errors import PyMongoError
 
 try:
     # When run as a package (python -m pomodoro) use a relative import.
-    from .pomo import run_break_session, run_work_session
+    from .pomo import run_break_session, run_work_session, wait_for_display
 except Exception:
     # Fallback for running modules directly in development (python -c).
-    from pomo import run_break_session, run_work_session
+    from pomo import run_break_session, run_work_session, wait_for_display
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -53,6 +53,23 @@ def load_environment():
 
 def iso_now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_int(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
 
 
 def load_json_log():
@@ -192,6 +209,13 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
 
 def main():
     load_environment()
+
+    if env_flag("POMODORO_WAIT_FOR_DISPLAY", default=False):
+        wait_for_display(
+            initial_delay_seconds=env_int("POMODORO_DISPLAY_INITIAL_DELAY_SECONDS", 60),
+            retry_seconds=env_int("POMODORO_DISPLAY_RETRY_SECONDS", 60),
+        )
+
     sync_pending_sessions()
 
     next_work_override = None

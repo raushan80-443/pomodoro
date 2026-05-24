@@ -5,6 +5,7 @@ set -euo pipefail
 # a systemd --user service to start the app at login/boot.
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_PARENT_DIR="$(dirname "$PROJECT_DIR")"
 VENV="$PROJECT_DIR/.venv"
 PYTHON_CMD=python3
 PIP_CMD=pip3
@@ -46,14 +47,18 @@ if [ "$USE_VENV" -eq 1 ]; then
 [Unit]
 Description=Pomodoro Timer (user)
 After=graphical-session.target
+Wants=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=$PROJECT_DIR
+WorkingDirectory=$PROJECT_PARENT_DIR
 ExecStart=$VENV/bin/python -m pomodoro
 Restart=always
-RestartSec=5
+RestartSec=60
 Environment=PYTHONUNBUFFERED=1
+Environment=POMODORO_WAIT_FOR_DISPLAY=1
+Environment=POMODORO_DISPLAY_INITIAL_DELAY_SECONDS=60
+Environment=POMODORO_DISPLAY_RETRY_SECONDS=60
 
 [Install]
 WantedBy=default.target
@@ -72,14 +77,18 @@ else
 [Unit]
 Description=Pomodoro Timer (user)
 After=graphical-session.target
+Wants=graphical-session.target
 
 [Service]
 Type=simple
-WorkingDirectory=$PROJECT_DIR
+WorkingDirectory=$PROJECT_PARENT_DIR
 ExecStart=$(command -v $PYTHON_CMD) -m pomodoro
 Restart=always
-RestartSec=5
+RestartSec=60
 Environment=PYTHONUNBUFFERED=1
+Environment=POMODORO_WAIT_FOR_DISPLAY=1
+Environment=POMODORO_DISPLAY_INITIAL_DELAY_SECONDS=60
+Environment=POMODORO_DISPLAY_RETRY_SECONDS=60
 
 [Install]
 WantedBy=default.target
@@ -87,6 +96,8 @@ EOF
 fi
 
 echo "Reloading systemd user daemon and enabling service"
+systemctl --user import-environment DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
+dbus-update-activation-environment --systemd DISPLAY XAUTHORITY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS || true
 systemctl --user daemon-reload
 systemctl --user enable --now pomodoro.service
 
