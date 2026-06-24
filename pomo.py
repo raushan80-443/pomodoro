@@ -1,9 +1,11 @@
 import os
+import subprocess
 import time
 from pathlib import Path
 
 
 MIN_DURATION_SECONDS = 60
+SUSPEND_GAP_SECONDS = 10
 _HEADLESS_WARNING_EMITTED = False
 
 
@@ -89,6 +91,69 @@ def _format_timer(seconds):
     return f"{minutes:02d}:{rem:02d}"
 
 
+def _sleep_gap_detected(previous_tick, current_tick, threshold_seconds=SUSPEND_GAP_SECONDS):
+    return (current_tick - previous_tick) > max(1, int(threshold_seconds))
+
+
+def _play_countdown_alert(root):
+    try:
+        root.bell()
+    except Exception:
+        pass
+
+    try:
+        print("\a", end="", flush=True)
+    except Exception:
+        pass
+
+
+def play_beep():
+    sound_files = [
+        "/usr/share/sounds/freedesktop/stereo/bell.oga",
+        "/usr/share/sounds/freedesktop/stereo/message.oga",
+        "/usr/share/sounds/oxygen/stereo/dialog-information.ogg",
+        "/usr/share/sounds/Oxygen-Sys-Special.ogg",
+        "/usr/share/sounds/alsa/Front_Center.wav",
+    ]
+    
+    # Try pw-play, paplay, aplay in background
+    for player in ["pw-play", "paplay", "aplay"]:
+        for sound_file in sound_files:
+            if Path(sound_file).exists():
+                try:
+                    subprocess.Popen([player, sound_file], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return True
+                except Exception:
+                    pass
+                    
+    # Fallback to spd-say
+    try:
+        subprocess.Popen(["spd-say", "-t", "female1", "beep"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except Exception:
+        pass
+
+    # Fallback to tkinter bell/terminal beep in background thread
+    def fallback_beeps():
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.withdraw()
+            root.bell()
+            root.update()
+            root.destroy()
+        except Exception:
+            pass
+        try:
+            print("\a", end="", flush=True)
+        except Exception:
+            pass
+
+    import threading
+    threading.Thread(target=fallback_beeps, daemon=True).start()
+    return True
+
+
 def wait_for_display(initial_delay_seconds=60, retry_seconds=60):
     initial_delay = max(0, int(initial_delay_seconds))
     retry_delay = max(1, int(retry_seconds))
@@ -119,22 +184,25 @@ def run_work_session(work_seconds):
     try:
         root = _create_tk_root("Pomodoro Work Session")
     except ImportError:
-        print("tkinter is unavailable; work session runs without interactive controls.")
-        time.sleep(work_seconds)
+        print("tkinter is unavailable; work session canceled because GUI is required.")
         return {
             "plannedWorkSeconds": work_seconds,
-            "actualWorkSeconds": work_seconds,
-            "workEndedBy": "timer",
+            "actualWorkSeconds": 0,
+            "workEndedBy": "guiUnavailable",
             "interactionLog": [],
+            "guiAvailable": False,
+            "sessionCanceled": True,
         }
     except Exception as error:
         _warn_headless_once(error)
-        time.sleep(work_seconds)
+        print("Work session canceled because GUI is required.")
         return {
             "plannedWorkSeconds": work_seconds,
-            "actualWorkSeconds": work_seconds,
-            "workEndedBy": "timer",
+            "actualWorkSeconds": 0,
+            "workEndedBy": "guiUnavailable",
             "interactionLog": [],
+            "guiAvailable": False,
+            "sessionCanceled": True,
         }
     import tkinter as tk
 
@@ -145,10 +213,14 @@ def run_work_session(work_seconds):
     root.configure(bg="#111827")
 
     started_at = time.time()
+    last_tick_at = started_at
     state = {
         "remaining": max(MIN_DURATION_SECONDS, int(work_seconds)),
         "go_break_now": False,
         "interaction_log": [],
+        "suspend_detected": False,
+        "active_elapsed_seconds": 0,
+        "beep_1min_played": False,
     }
 
     title_label = tk.Label(
@@ -201,11 +273,27 @@ def run_work_session(work_seconds):
     while state["remaining"] > 0 and not state["go_break_now"]:
         timer_label.config(text=_format_timer(state["remaining"]))
         root.update()
+        if state["remaining"] <= 3:
+            _play_countdown_alert(root)
+        elif state["remaining"] <= 60 and not state["beep_1min_played"]:
+            state["beep_1min_played"] = True
+            play_beep()
+        tick_before_sleep = time.time()
         time.sleep(1)
-        state["remaining"] -= 1
+        tick_after_sleep = time.time()
+        if _sleep_gap_detected(last_tick_at, tick_after_sleep):
+            state["suspend_detected"] = True
+            break
 
-    actual_work_seconds = int(time.time() - started_at)
-    ended_by = "userBreakNow" if state["go_break_now"] else "timer"
+        state["remaining"] -= 1
+        state["active_elapsed_seconds"] += max(1, int(round(tick_after_sleep - tick_before_sleep)))
+        last_tick_at = tick_after_sleep
+
+    actual_work_seconds = state["active_elapsed_seconds"] or int(time.time() - started_at)
+    if state["suspend_detected"]:
+        ended_by = "systemSleep"
+    else:
+        ended_by = "userBreakNow" if state["go_break_now"] else "timer"
 
     root.destroy()
 
@@ -214,6 +302,8 @@ def run_work_session(work_seconds):
         "actualWorkSeconds": max(1, actual_work_seconds),
         "workEndedBy": ended_by,
         "interactionLog": state["interaction_log"],
+        "guiAvailable": True,
+        "sessionInterruptedBySleep": state["suspend_detected"],
     }
 
 
@@ -221,30 +311,33 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
     try:
         root = _create_tk_root("Pomodoro Break Session")
     except ImportError:
-        print("tkinter is unavailable; break session runs without interactive controls.")
-        time.sleep(break_seconds)
+        print("tkinter is unavailable; break session canceled because GUI is required.")
         return {
             "plannedBreakSeconds": break_seconds,
-            "actualBreakSeconds": break_seconds,
-            "breakEndedBy": "timer",
+            "actualBreakSeconds": 0,
+            "breakEndedBy": "guiUnavailable",
             "nextWorkSeconds": default_next_work_seconds,
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
             "productivityRating": None,
             "exitApp": False,
+            "sessionCanceled": True,
+            "guiAvailable": False,
         }
     except Exception as error:
         _warn_headless_once(error)
-        time.sleep(break_seconds)
+        print("Break session canceled because GUI is required.")
         return {
             "plannedBreakSeconds": break_seconds,
-            "actualBreakSeconds": break_seconds,
-            "breakEndedBy": "timer",
+            "actualBreakSeconds": 0,
+            "breakEndedBy": "guiUnavailable",
             "nextWorkSeconds": default_next_work_seconds,
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
             "productivityRating": None,
             "exitApp": False,
+            "sessionCanceled": True,
+            "guiAvailable": False,
         }
     import tkinter as tk
 
@@ -299,6 +392,7 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         pass
 
     started_at = time.time()
+    last_tick_at = started_at
     state = {
         "remaining": max(MIN_DURATION_SECONDS, int(break_seconds)),
         "end_break_now": False,
@@ -307,6 +401,9 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
         "interaction_log": [],
         "productivity_rating": None,
+        "suspend_detected": False,
+        "active_elapsed_seconds": 0,
+        "beep_20sec_played": False,
     }
 
     # Central container for all break UI elements
@@ -354,6 +451,8 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
 
     def update_break_duration(delta_seconds):
         state["remaining"] = max(MIN_DURATION_SECONDS, state["remaining"] + delta_seconds)
+        if state["remaining"] > 20:
+            state["beep_20sec_played"] = False
         break_length_label.config(text=_format_timer(state["remaining"]))
         state["interaction_log"].append(
             {
@@ -511,11 +610,26 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         timer_label.config(text=_format_timer(state["remaining"]))
         break_length_label.config(text=_format_timer(state["remaining"]))
         root.update()
+        if state["remaining"] <= 3:
+            _play_countdown_alert(root)
+        elif state["remaining"] <= 20 and not state["beep_20sec_played"]:
+            state["beep_20sec_played"] = True
+            play_beep()
+        tick_before_sleep = time.time()
         time.sleep(1)
-        state["remaining"] -= 1
+        tick_after_sleep = time.time()
+        if _sleep_gap_detected(last_tick_at, tick_after_sleep):
+            state["suspend_detected"] = True
+            break
 
-    actual_break_seconds = int(time.time() - started_at)
-    if state["exit_app"]:
+        state["remaining"] -= 1
+        state["active_elapsed_seconds"] += max(1, int(round(tick_after_sleep - tick_before_sleep)))
+        last_tick_at = tick_after_sleep
+
+    actual_break_seconds = state["active_elapsed_seconds"] or int(time.time() - started_at)
+    if state["suspend_detected"]:
+        ended_by = "systemSleep"
+    elif state["exit_app"]:
         ended_by = "userExit"
     else:
         ended_by = "userEndBreakNow" if state["end_break_now"] else "timer"
@@ -531,6 +645,8 @@ def run_break_session(break_seconds, default_next_work_seconds, default_next_bre
         "nextBreakSeconds": state["next_break"],
         "interactionLog": state["interaction_log"],
         "productivityRating": state.get("productivity_rating"),
+        "guiAvailable": True,
+        "sessionInterruptedBySleep": state["suspend_detected"],
     }
 
 

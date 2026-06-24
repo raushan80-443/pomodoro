@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import atexit
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -11,19 +13,19 @@ from pymongo.errors import PyMongoError
 
 try:
     # When run as a package (python -m pomodoro) use a relative import.
-    from .pomo import run_break_session, run_work_session, wait_for_display
+    from .pomo import run_break_session, run_work_session, wait_for_display, play_beep
 except Exception:
     # Fallback for running modules directly in development (python -c).
-    from pomo import run_break_session, run_work_session, wait_for_display
+    from pomo import run_break_session, run_work_session, wait_for_display, play_beep
 
 
 ROOT_DIR = Path(__file__).resolve().parent
 JSON_LOG_PATH = ROOT_DIR / "pomodoro_log.json"
 ENV_PATHS = (ROOT_DIR / "env" / ".env", ROOT_DIR / ".env")
-SESSION_COUNT = 3
 WORK_TIME_SECONDS = 40 * 60
 BREAK_TIME_SECONDS = 4 * 60
 MONGO_COLLECTION_NAME = "pomodoro_sessions"
+LOCK_FILE_NAME = "pomodoro.lock"
 
 
 def load_env_file(env_path):
@@ -70,6 +72,51 @@ def env_int(name, default):
         return int(raw)
     except ValueError:
         return default
+
+
+def _lock_file_path():
+    cache_home = os.environ.get("XDG_CACHE_HOME")
+    if cache_home:
+        lock_dir = Path(cache_home) / "pomodoro"
+    else:
+        lock_dir = Path.home() / ".cache" / "pomodoro"
+
+    try:
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        return lock_dir / LOCK_FILE_NAME
+    except Exception:
+        fallback_dir = Path("/tmp") / f"pomodoro-{os.getuid()}"
+        fallback_dir.mkdir(parents=True, exist_ok=True)
+        return fallback_dir / LOCK_FILE_NAME
+
+
+def acquire_single_instance_lock():
+    lock_path = _lock_file_path()
+    lock_file = open(lock_path, "w")
+
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        return None
+
+    lock_file.seek(0)
+    lock_file.truncate()
+    lock_file.write(str(os.getpid()))
+    lock_file.flush()
+
+    def _release_lock():
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        except Exception:
+            pass
+        try:
+            lock_file.close()
+        except Exception:
+            pass
+
+    atexit.register(_release_lock)
+    return lock_file
 
 
 def load_json_log():
@@ -169,12 +216,45 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
     print(f"hold push your limit {cycle_number}")
     work_result = run_work_session(work_seconds)
 
+    if not work_result.get("guiAvailable", False):
+        print("GUI was not available for the work session; stopping pomodoro entirely.")
+        return True
+
+    if work_result.get("sessionInterruptedBySleep"):
+        print("System sleep detected during work; saving the session and starting a fresh cycle.")
+        session_record = {
+            "sessionId": str(uuid4()),
+            "cycle": cycle_number,
+            "sessionStartedAt": session_started_at,
+            "sessionCompletedAt": iso_now(),
+            "workTimeMinutes": round(work_result["actualWorkSeconds"] / 60, 2),
+            "workTimeSeconds": work_result["actualWorkSeconds"],
+            "breakTimeMinutes": 0,
+            "breakTimeSeconds": 0,
+            "plannedWorkSeconds": work_result["plannedWorkSeconds"],
+            "plannedBreakSeconds": 0,
+            "workEndedBy": work_result["workEndedBy"],
+            "breakEndedBy": "notStarted",
+            "interactionLog": work_result["interactionLog"],
+            "productivityRating": 0,
+            "sessionInterruptedBySleep": True,
+        }
+        log_session(session_record)
+        return None
+
     print("get some rest")
     break_result = run_break_session(
         break_seconds=break_seconds,
         default_next_work_seconds=WORK_TIME_SECONDS,
         default_next_break_seconds=BREAK_TIME_SECONDS,
     )
+
+    if break_result.get("sessionCanceled"):
+        print("Break session could not start because GUI was unavailable; skipping log entry.")
+        return None
+
+    if break_result.get("sessionInterruptedBySleep"):
+        print("System sleep detected during break; saving the session and starting a fresh cycle.")
 
     session_record = {
         "sessionId": str(uuid4()),
@@ -195,11 +275,11 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
     }
     log_session(session_record)
 
-    # If user hit Exit during the break, save and terminate the program.
+    # If user hit Exit during the break, save and signal the caller to stop.
     if break_result.get("exitApp"):
         print("Exit requested during break — saved session, quitting.")
         sync_pending_sessions()
-        sys.exit(0)
+        return True
 
     # No return value needed; caller should not rely on nextWork/nextBreak values.
     return None
@@ -207,6 +287,22 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
 
 def main():
     load_environment()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--test-sound":
+        print("Playing test sound...")
+        played = play_beep()
+        if played:
+            print("Sound play command triggered successfully.")
+        else:
+            print("Failed to play sound using any method.")
+        return
+
+    instance_lock = acquire_single_instance_lock()
+    if instance_lock is None:
+        print("Pomodoro is already running; skipping duplicate startup.")
+        return
+
+    session_count = max(1, env_int("POMODORO_SESSION_COUNT", 1))
 
     if env_flag("POMODORO_WAIT_FOR_DISPLAY", default=False):
         wait_for_display(
@@ -219,7 +315,7 @@ def main():
     next_work_override = None
     next_break_override = None
 
-    for cycle_number in range(1, SESSION_COUNT + 1):
+    for cycle_number in range(1, session_count + 1):
         work_seconds = next_work_override or WORK_TIME_SECONDS
         break_seconds = next_break_override or BREAK_TIME_SECONDS
 
@@ -228,12 +324,16 @@ def main():
         next_work_override = None
         next_break_override = None
 
-        # run_pomodoro_cycle no longer returns next-work/next-break values
-        run_pomodoro_cycle(
+        # run_pomodoro_cycle may return True to indicate the app should stop
+        should_exit = run_pomodoro_cycle(
             cycle_number=cycle_number,
             work_seconds=work_seconds,
             break_seconds=break_seconds,
         )
+
+        if should_exit:
+            print("Shutdown requested; stopping pomodoro cycles.")
+            return
 
         # There is no returned override from the cycle; use defaults.
         next_work_seconds = WORK_TIME_SECONDS
