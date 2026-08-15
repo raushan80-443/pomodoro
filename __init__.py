@@ -13,10 +13,10 @@ from pymongo.errors import PyMongoError
 
 try:
     # When run as a package (python -m pomodoro) use a relative import.
-    from .pomo import run_break_session, run_work_session, wait_for_display, play_beep
+    from .pomo import run_break_session, run_work_session, wait_for_display, play_beep, _load_summary_stats
 except Exception:
     # Fallback for running modules directly in development (python -c).
-    from pomo import run_break_session, run_work_session, wait_for_display, play_beep
+    from pomo import run_break_session, run_work_session, wait_for_display, play_beep, _load_summary_stats
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -130,7 +130,12 @@ def load_json_log():
 
 
 def save_json_log(log_data):
-    JSON_LOG_PATH.write_text(json.dumps(log_data, indent=2))
+    temp_path = JSON_LOG_PATH.with_suffix(".json.tmp")
+    try:
+        temp_path.write_text(json.dumps(log_data, indent=2))
+        os.replace(temp_path, JSON_LOG_PATH)
+    except Exception:
+        JSON_LOG_PATH.write_text(json.dumps(log_data, indent=2))
 
 
 def write_json_log(session_record):
@@ -169,7 +174,7 @@ def push_to_mongo(session_record):
 
     if not mongo_uri or "<db_password>" in mongo_uri:
         print("MongoDB URI is missing or still uses <db_password>; saved locally only.")
-        return
+        return False
 
     client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
     try:
@@ -180,7 +185,7 @@ def push_to_mongo(session_record):
             session_record,
             upsert=True,
         )
-    except PyMongoError as error:
+    except Exception as error:
         print(f"MongoDB write failed: {error}")
         return False
     finally:
@@ -243,10 +248,12 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         return None
 
     print("get some rest")
+    stats = _load_summary_stats(current_work_seconds=work_result.get("actualWorkSeconds", 0))
     break_result = run_break_session(
         break_seconds=break_seconds,
         default_next_work_seconds=WORK_TIME_SECONDS,
         default_next_break_seconds=BREAK_TIME_SECONDS,
+        stats=stats,
     )
 
     if break_result.get("sessionCanceled"):
