@@ -17,11 +17,13 @@ Every time you enter a break, the application dynamically computes your session 
 * **💼 Distraction-Free Work Sessions (Default 40 mins):**
   * Runs in a small, sleek dark window (`720x420`), iconified/minimized by default so it stays out of your workspace.
   * Includes a **"Go On Break Now"** button to manually trigger a break when needed.
+  * **✍️ Post-Session Note Prompt:** When work completes, a window prompts you to write a quick note, reflection, or next goal. Auto-dismisses in 10s if untouched, or **pauses the countdown as soon as you start typing** so you can take your time. Notes are saved to `pomodoro_log.json` (`sessionNote`) & MongoDB.
   * Multi-stage sound alerts at 60s remaining and terminal/Tkinter bell countdowns during the final 3s.
   * System sleep/suspend gap detection (>10s time drift) that automatically saves partial work and restarts a fresh cycle.
 
 * **☕ Fullscreen Enforced Break Lock (Default 4 mins):**
   * Completely takes over the screen (fullscreen, borderless frame, topmost, input-grabbed, and auto-refocuses on focus loss).
+  * **⭐ Mandatory Rating Requirement:** You **cannot quit or resume work** until you click a 1–5 Star focus rating. Attempting to exit unrated flashes a warning and keeps the screen locked.
   * **📊 Live Embedded Matplotlib Dashboard:** Rendered on-the-fly from local JSON history:
     * **Daily Focus Work Hours Over Time** (Line chart with gradient fill)
     * **Productivity Rating Distribution** (Bar chart across 1–5 stars)

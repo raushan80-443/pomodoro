@@ -569,12 +569,133 @@ def run_work_session(work_seconds):
     else:
         ended_by = "userBreakNow" if state["go_break_now"] else "timer"
 
+    session_note = ""
+    if not state["suspend_detected"]:
+        try:
+            root.deiconify()
+            try:
+                root.attributes("-topmost", True)
+            except Exception:
+                pass
+            try:
+                root.lift()
+                root.focus_force()
+            except Exception:
+                pass
+            root.geometry("640x440")
+            root.configure(bg="#0B0F19")
+
+            for widget in root.winfo_children():
+                widget.destroy()
+
+            note_frame = tk.Frame(root, bg="#0B0F19", padx=24, pady=20)
+            note_frame.pack(expand=True, fill="both")
+
+            tk.Label(
+                note_frame,
+                text="🎉 Work Session Complete!",
+                font=("Helvetica", 20, "bold"),
+                fg="#38BDF8",
+                bg="#0B0F19",
+            ).pack(pady=(0, 4))
+
+            tk.Label(
+                note_frame,
+                text="Write a quick note, reflection, or goal for next session:",
+                font=("Helvetica", 11),
+                fg="#D1D5DB",
+                bg="#0B0F19",
+            ).pack(pady=(0, 10))
+
+            note_text_box = tk.Text(
+                note_frame,
+                height=4,
+                width=50,
+                font=("Helvetica", 12),
+                bg="#1F2937",
+                fg="#F9FAFB",
+                insertbackground="#38BDF8",
+                highlightbackground="#374151",
+                highlightthickness=1,
+                padx=10,
+                pady=8,
+            )
+            note_text_box.pack(pady=(0, 10))
+            note_text_box.focus_set()
+
+            auto_lbl = tk.Label(
+                note_frame,
+                text="Auto-continuing in 10s... (Start typing to keep open)",
+                font=("Helvetica", 11, "bold"),
+                fg="#F59E0B",
+                bg="#0B0F19",
+            )
+            auto_lbl.pack(pady=(0, 12))
+
+            prompt_state = {
+                "timer_sec": 10,
+                "user_interacting": False,
+                "submitted": False,
+                "note_text": "",
+            }
+
+            def on_user_interaction(event=None):
+                if not prompt_state["user_interacting"]:
+                    prompt_state["user_interacting"] = True
+                    auto_lbl.config(
+                        text="✍️ Timer paused — take your time writing!",
+                        fg="#10B981",
+                    )
+
+            note_text_box.bind("<Key>", on_user_interaction)
+            note_text_box.bind("<Button-1>", on_user_interaction)
+            note_text_box.bind("<FocusIn>", on_user_interaction)
+
+            def submit_note():
+                prompt_state["note_text"] = note_text_box.get("1.0", "end-1c").strip()
+                prompt_state["submitted"] = True
+
+            submit_btn = tk.Button(
+                note_frame,
+                text="Submit Note & Go To Break ➔",
+                font=("Helvetica", 12, "bold"),
+                bg="#10B981",
+                fg="#F9FAFB",
+                activebackground="#059669",
+                padx=18,
+                pady=6,
+                command=submit_note,
+            )
+            submit_btn.pack()
+
+            last_timer_tick = time.time()
+            while not prompt_state["submitted"]:
+                root.update()
+                time.sleep(0.05)
+
+                if not prompt_state["user_interacting"]:
+                    now_tick = time.time()
+                    if now_tick - last_timer_tick >= 1.0:
+                        last_timer_tick = now_tick
+                        prompt_state["timer_sec"] -= 1
+                        auto_lbl.config(
+                            text=f"Auto-continuing in {max(0, prompt_state['timer_sec'])}s... (Start typing to keep open)"
+                        )
+                        if prompt_state["timer_sec"] <= 0:
+                            prompt_state["note_text"] = note_text_box.get("1.0", "end-1c").strip()
+                            prompt_state["submitted"] = True
+
+            session_note = prompt_state["note_text"]
+        except Exception as prompt_err:
+            print(f"Note prompt error: {prompt_err}")
+
     root.destroy()
 
     return {
         "plannedWorkSeconds": max(MIN_DURATION_SECONDS, int(work_seconds)),
         "actualWorkSeconds": max(1, actual_work_seconds),
         "workEndedBy": ended_by,
+        "sessionNote": session_note,
         "interactionLog": state["interaction_log"],
         "guiAvailable": True,
         "sessionInterruptedBySleep": state["suspend_detected"],
@@ -809,7 +930,7 @@ def run_break_session(
     next_work_label.grid(row=0, column=7, padx=4)
     tk.Button(ctrl_grid, text="+5 min", font=("Helvetica", 10, "bold"), bg="#047857", fg="#F9FAFB", activebackground="#059669", padx=8, pady=2, command=lambda: update_next_work(300)).grid(row=0, column=8, padx=4)
 
-    # ⭐ PRODUCTIVITY RATING SECTION
+    # ⭐ PRODUCTIVITY RATING SECTION (MANDATORY)
     rating_frame = tk.Frame(main_frame, bg="#111827", highlightbackground="#1F2937", highlightthickness=1, padx=16, pady=10)
     rating_frame.pack(fill="x", pady=(0, 14))
 
@@ -817,7 +938,13 @@ def run_break_session(
     rating_top_row.pack(fill="x", pady=(0, 6))
 
     tk.Label(rating_top_row, text="⭐ RATE THIS SESSION'S FOCUS LEVEL", font=("Helvetica", 10, "bold"), fg="#F3F4F6", bg="#111827").pack(side="left")
-    rating_status_lbl = tk.Label(rating_top_row, text="Rating: 3 ★ (Good)", font=("Helvetica", 10, "bold"), fg="#FBBF24", bg="#111827")
+    rating_status_lbl = tk.Label(
+        rating_top_row,
+        text="⚠️ MANDATORY: Select 1-5 ★ rating to enable Resume/Exit",
+        font=("Helvetica", 10, "bold"),
+        fg="#EF4444",
+        bg="#111827",
+    )
     rating_status_lbl.pack(side="right")
 
     star_btn_frame = tk.Frame(rating_frame, bg="#111827")
@@ -831,7 +958,7 @@ def run_break_session(
         state["interaction_log"].append(
             {"event": "setProductivity", "rating": val, "at": int(time.time() - started_at)}
         )
-        rating_status_lbl.config(text=f"Rating: {rating_labels_map[val]}")
+        rating_status_lbl.config(text=f"Rating: {rating_labels_map[val]} (Unlocked ✓)", fg="#10B981")
         for r, btn in star_buttons.items():
             if r == val:
                 btn.config(bg="#F59E0B", fg="#090D16", font=("Helvetica", 10, "bold"))
@@ -842,9 +969,9 @@ def run_break_session(
         btn = tk.Button(
             star_btn_frame,
             text=f"{r} ★",
-            font=("Helvetica", 10, "bold" if r == 3 else "normal"),
-            bg="#F59E0B" if r == 3 else "#1E293B",
-            fg="#090D16" if r == 3 else "#94A3B8",
+            font=("Helvetica", 10),
+            bg="#1E293B",
+            fg="#94A3B8",
             padx=16,
             pady=4,
             command=lambda val=r: select_rating(val),
@@ -852,13 +979,31 @@ def run_break_session(
         btn.pack(side="left", padx=4)
         star_buttons[r] = btn
 
-    state["productivity_rating"] = 3
+    state["productivity_rating"] = None
+
+    def flash_star_warning():
+        rating_status_lbl.config(
+            text="⚠️ MANDATORY RATING REQUIRED! Click a 1-5 ★ rating to proceed!",
+            fg="#EF4444",
+        )
+        for btn in star_buttons.values():
+            btn.config(bg="#DC2626", fg="#FFFFFF")
+        def reset_stars():
+            for r, btn in star_buttons.items():
+                if state["productivity_rating"] == r:
+                    btn.config(bg="#F59E0B", fg="#090D16")
+                else:
+                    btn.config(bg="#1E293B", fg="#94A3B8")
+        root.after(700, reset_stars)
 
     # 🚀 ACTION FOOTER BUTTONS
     footer_frame = tk.Frame(main_frame, bg="#090D16")
     footer_frame.pack(pady=4)
 
     def end_break_now():
+        if state["productivity_rating"] is None:
+            flash_star_warning()
+            return
         if state["end_break_now"]:
             return
         state["end_break_now"] = True
@@ -867,6 +1012,9 @@ def run_break_session(
         )
 
     def exit_app():
+        if state["productivity_rating"] is None:
+            flash_star_warning()
+            return
         if state["exit_app"]:
             return
         state["exit_app"] = True
@@ -901,8 +1049,17 @@ def run_break_session(
     )
     exit_btn.pack(side="left", padx=10)
 
-    while state["remaining"] > 0 and not state["end_break_now"] and not state["exit_app"]:
-        timer_label.config(text=_format_timer(state["remaining"]))
+    while (state["remaining"] > 0 or state["productivity_rating"] is None) and not state["end_break_now"] and not state["exit_app"]:
+        if state["remaining"] > 0:
+            timer_label.config(text=_format_timer(state["remaining"]))
+        else:
+            timer_label.config(text="00:00 (Select Rating)")
+            rating_status_lbl.config(
+                text="⚠️ BREAK COMPLETE! Select a 1-5 ★ rating to proceed!",
+                fg="#EF4444"
+            )
+        break_length_label.config(text=_format_timer(state["remaining"]))
+        root.update()
         break_length_label.config(text=_format_timer(state["remaining"]))
         root.update()
         if state["remaining"] <= 3:
