@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pomodoro</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="app-container">
+    
+    <!-- Top Drag Bar for Work Mode -->
+    <div class="drag-bar" data-tauri-drag-region>
+      <div class="drag-title">⚡ POMODORO FOCUS</div>
+      <div class="drag-cycle" id="cycleBadge">Cycle #1</div>
+    </div>
+
+    <!-- 1. WORK VIEW -->
+    <section id="workView" class="view active">
+      <div class="work-card">
+        <div class="work-header">
+          <h2>Deep Work Session</h2>
+          <p class="subtitle">Eliminate distractions. Stay locked in.</p>
+        </div>
+
+        <div class="timer-display-wrap">
+          <div class="timer-circle-glow"></div>
+          <div class="timer-value" id="workTimer">40:00</div>
+        </div>
+
+        <div class="streak-indicator" id="workStreakBadge">
+          🔥 Consistency Streak: Calculating...
+        </div>
+
+        <div class="work-actions">
+          <button id="btnJumpBreak" class="btn btn-warning">
+            ⚡ Go On Break Now
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. WORK COMPLETION NOTE MODAL -->
+    <div id="noteModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <span class="badge badge-success">COMPLETED</span>
+          <h2>🎉 Work Session Complete!</h2>
+          <p>Capture your reflections, progress, or next goal before stepping away:</p>
+        </div>
+
+        <div class="note-input-wrap">
+          <textarea
+            id="sessionNoteInput"
+            rows="3"
+            placeholder="e.g. Finished customer auth API routes, next write unit tests..."
+          ></textarea>
+        </div>
+
+        <div class="note-countdown-wrap">
+          <div class="countdown-bar-bg">
+            <div id="countdownBar" class="countdown-bar-fill"></div>
+          </div>
+          <p id="countdownStatus" class="countdown-text">
+            ⏱️ Auto-continuing in <span id="noteCountdownSec">10</span>s... (Start typing to pause)
+          </p>
+        </div>
+
+        <div class="modal-footer">
+          <button id="btnSubmitNote" class="btn btn-primary">
+            Submit Note & Continue to Break ➔
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. FULLSCREEN BREAK LOCK VIEW -->
+    <section id="breakView" class="view hidden">
+      <div class="break-container">
+        
+        <!-- Break Header -->
+        <header class="break-header">
+          <div class="break-title-wrap">
+            <span class="badge badge-cyan">ENFORCED BREAK</span>
+            <h1>☕ REST & RECHARGE</h1>
+            <p>Stand up, relax your eyes, and let your brain consolidate what you learned.</p>
+          </div>
+          <div class="break-timer-huge" id="breakTimer">04:00</div>
+        </header>
+
+        <!-- Wellness & Productivity Assistant Bar -->
+        <div class="assistant-bar">
+          <!-- Hydration Tracker -->
+          <div class="assistant-card" id="hydrationCard">
+            <div class="assistant-icon">💧</div>
+            <div class="assistant-info">
+              <span class="card-label">HYDRATION TRACKER</span>
+              <span class="card-val" id="waterCountText">0 Cups Logged</span>
+            </div>
+            <button id="btnAddWater" class="btn-sm btn-cyan">+1 Cup</button>
+          </div>
+
+          <!-- Micro Posture / Physical Cue -->
+          <div class="assistant-card">
+            <div class="assistant-icon">🧘</div>
+            <div class="assistant-info">
+              <span class="card-label">PHYSICAL RESET</span>
+              <span class="card-desc" id="stretchPromptText">Roll your shoulders back & look 20 feet away for 20 seconds.</span>
+            </div>
+          </div>
+
+          <!-- Motivational Long-Term Cue -->
+          <div class="assistant-card">
+            <div class="assistant-icon">💡</div>
+            <div class="assistant-info">
+              <span class="card-label">CONSISTENCY MINDSET</span>
+              <span class="card-desc" id="coachingQuoteText">Small daily focus blocks compound into massive lifelong mastery.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Graphical Analytics Dashboard -->
+        <div class="analytics-section">
+          <div class="analytics-header">
+            <h3>📊 LIVE ANALYTICS & HISTORICAL PERFORMANCE</h3>
+            <span class="stats-badge" id="streakBadge">🔥 39 Days Streak</span>
+          </div>
+
+          <div class="charts-grid">
+            <!-- 1. Daily Work Hours Trend -->
+            <div class="chart-box">
+              <div class="chart-header">
+                <span>Daily Focus Work Hours Over Time</span>
+                <span class="chart-tag">Trend</span>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="canvasDaily"></canvas>
+              </div>
+            </div>
+
+            <!-- 2. Productivity Rating Distribution -->
+            <div class="chart-box">
+              <div class="chart-header">
+                <span>Productivity Rating Distribution</span>
+                <span class="chart-tag">Ratings</span>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="canvasRatings"></canvas>
+              </div>
+            </div>
+
+            <!-- 3. Work Session End Triggers -->
+            <div class="chart-box">
+              <div class="chart-header">
+                <span>Session End Trigger Breakdown</span>
+                <span class="chart-tag">Completion</span>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="canvasTriggers"></canvas>
+              </div>
+            </div>
+
+            <!-- 4. Cumulative Focus Growth -->
+            <div class="chart-box">
+              <div class="chart-header">
+                <span>Cumulative Focus Work Growth (Total Hours)</span>
+                <span class="chart-tag">Growth</span>
+              </div>
+              <div class="canvas-wrap">
+                <canvas id="canvasCumulative"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- KPI Summary Strip -->
+          <div class="kpi-strip" id="kpiSummaryText">
+            Loading summary metrics...
+          </div>
+        </div>
+
+        <!-- Controls: Break Duration & Next Work Adjuster -->
+        <div class="adjusters-bar">
+          <div class="adjuster-group">
+            <span class="adj-label">Break Length:</span>
+            <button id="btnBreakMinus" class="btn-mini btn-danger">-1 min</button>
+            <span id="breakLengthLabel" class="adj-value">04:00</span>
+            <button id="btnBreakPlus" class="btn-mini btn-success">+1 min</button>
+          </div>
+
+          <div class="adj-separator"></div>
+
+          <div class="adjuster-group">
+            <span class="adj-label">Next Work Duration:</span>
+            <button id="btnWorkMinus" class="btn-mini btn-danger">-5 min</button>
+            <span id="nextWorkLabel" class="adj-value">40:00</span>
+            <button id="btnWorkPlus" class="btn-mini btn-success">+5 min</button>
+          </div>
+        </div>
+
+        <!-- ⭐ MANDATORY PRODUCTIVITY RATING SECTION -->
+        <div class="rating-section" id="ratingSection">
+          <div class="rating-header">
+            <span class="rating-title">⭐ RATE THIS SESSION'S FOCUS LEVEL</span>
+            <span id="ratingStatusText" class="rating-status-warning">
+              ⚠️ MANDATORY: Select a 1-5 ★ rating to enable Resume / Exit
+            </span>
+          </div>
+
+          <div class="stars-row">
+            <button class="star-btn" data-star="1">1 ★ Low</button>
+            <button class="star-btn" data-star="2">2 ★ Fair</button>
+            <button class="star-btn" data-star="3">3 ★ Good</button>
+            <button class="star-btn" data-star="4">4 ★ Great</button>
+            <button class="star-btn" data-star="5">5 ★ Peak Focus</button>
+          </div>
+        </div>
+
+        <!-- Action Footer -->
+        <footer class="break-actions">
+          <button id="btnResumeWork" class="btn btn-gold btn-lg">
+            ⚡ RESUME WORK NOW
+          </button>
+          <button id="btnExitApp" class="btn btn-crimson btn-md">
+            🔴 EXIT APP
+          </button>
+        </footer>
+
+      </div>
+    </section>
+
+  </div>
+
+  <script src="charts.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

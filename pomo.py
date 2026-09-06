@@ -3,7 +3,7 @@ import json
 import os
 import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import matplotlib.dates as mdates
@@ -218,6 +218,18 @@ def _load_summary_stats(current_work_seconds=0):
             return f"{hrs}h"
         return f"{hrs}h {rem_m}m"
 
+    # Calculate streak
+    streak_count = 0
+    if daily_work_seconds:
+        dates_set = set(daily_work_seconds.keys())
+        today_dt = datetime.now().date()
+        check_dt = today_dt
+        if check_dt.strftime("%Y-%m-%d") not in dates_set:
+            check_dt = check_dt - timedelta(days=1)
+        while check_dt.strftime("%Y-%m-%d") in dates_set:
+            streak_count += 1
+            check_dt = check_dt - timedelta(days=1)
+
     top_day_str = "N/A"
     if daily_work_seconds:
         top_date_key, max_sec = max(daily_work_seconds.items(), key=lambda x: x[1])
@@ -243,6 +255,7 @@ def _load_summary_stats(current_work_seconds=0):
         "total_work": format_duration(total_work_sec),
         "total_rating": total_avg,
         "top_day": top_day_str,
+        "streak_days": f"{streak_count} Days 🔥",
         "timer_pct": f"{timer_pct}%",
         "sleep_pct": f"{sleep_pct}%",
     }
@@ -572,6 +585,9 @@ def run_work_session(work_seconds):
     session_note = ""
     if not state["suspend_detected"]:
         try:
+            # Play chime alert so user is immediately notified
+            play_beep()
+
             root.deiconify()
             try:
                 root.attributes("-topmost", True)
@@ -582,8 +598,38 @@ def run_work_session(work_seconds):
                 root.focus_force()
             except Exception:
                 pass
-            root.geometry("640x440")
+
+            # Center window on screen
+            try:
+                sw = root.winfo_screenwidth()
+                sh = root.winfo_screenheight()
+                w, h = 680, 450
+                x = max(0, (sw - w) // 2)
+                y = max(0, (sh - h) // 2)
+                root.geometry(f"{w}x{h}+{x}+{y}")
+            except Exception:
+                root.geometry("680x450")
+
             root.configure(bg="#0B0F19")
+
+            # Try to grab global input and reclaim focus if clicked outside
+            try:
+                root.grab_set_global()
+            except Exception:
+                try:
+                    root.grab_set()
+                except Exception:
+                    pass
+
+            def _on_prompt_focus_out(event):
+                try:
+                    root.attributes("-topmost", True)
+                    root.lift()
+                    root.focus_force()
+                except Exception:
+                    pass
+
+            root.bind("<FocusOut>", _on_prompt_focus_out)
 
             for widget in root.winfo_children():
                 widget.destroy()

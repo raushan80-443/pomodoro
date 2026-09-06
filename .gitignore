@@ -2,3 +2,5 @@
 __pycache__/
 *.pyc
 pomodoro_log.json
+src-tauri/target/
+target/
