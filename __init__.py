@@ -14,9 +14,14 @@ from pymongo.errors import PyMongoError
 try:
     # When run as a package (python -m pomodoro) use a relative import.
     from .pomo import run_break_session, run_work_session, wait_for_display, play_beep, _load_summary_stats
+    from .network_monitor import start_network_monitor
 except Exception:
     # Fallback for running modules directly in development (python -c).
     from pomo import run_break_session, run_work_session, wait_for_display, play_beep, _load_summary_stats
+    try:
+        from network_monitor import start_network_monitor
+    except Exception:
+        start_network_monitor = None
 
 
 ROOT_DIR = Path(__file__).resolve().parent
@@ -308,6 +313,10 @@ def main():
     if instance_lock is None:
         print("Pomodoro is already running; skipping duplicate startup.")
         return
+
+    # Start background network latency & slowdown monitor
+    if start_network_monitor:
+        start_network_monitor()
 
     session_count = max(1, env_int("POMODORO_SESSION_COUNT", 1))
 

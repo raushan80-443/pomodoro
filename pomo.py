@@ -612,25 +612,6 @@ def run_work_session(work_seconds):
 
             root.configure(bg="#0B0F19")
 
-            # Try to grab global input and reclaim focus if clicked outside
-            try:
-                root.grab_set_global()
-            except Exception:
-                try:
-                    root.grab_set()
-                except Exception:
-                    pass
-
-            def _on_prompt_focus_out(event):
-                try:
-                    root.attributes("-topmost", True)
-                    root.lift()
-                    root.focus_force()
-                except Exception:
-                    pass
-
-            root.bind("<FocusOut>", _on_prompt_focus_out)
-
             for widget in root.winfo_children():
                 widget.destroy()
 
@@ -667,7 +648,8 @@ def run_work_session(work_seconds):
                 pady=8,
             )
             note_text_box.pack(pady=(0, 10))
-            note_text_box.focus_set()
+            root.after(50, lambda: note_text_box.focus_set())
+            root.after(100, lambda: note_text_box.focus_force())
 
             auto_lbl = tk.Label(
                 note_frame,
@@ -697,9 +679,11 @@ def run_work_session(work_seconds):
             note_text_box.bind("<Button-1>", on_user_interaction)
             note_text_box.bind("<FocusIn>", on_user_interaction)
 
-            def submit_note():
+            def submit_note(event=None):
                 prompt_state["note_text"] = note_text_box.get("1.0", "end-1c").strip()
                 prompt_state["submitted"] = True
+
+            note_text_box.bind("<Control-Return>", submit_note)
 
             submit_btn = tk.Button(
                 note_frame,
@@ -884,7 +868,31 @@ def run_break_session(
         fg="#60A5FA",
         bg="#090D16",
     )
-    timer_label.pack(pady=(4, 10))
+    timer_label.pack(pady=(4, 6))
+
+    # 💧 WELLNESS & PRODUCTIVITY BANNER (Hydration, Posture & Consistency)
+    wellness_frame = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#1E293B", highlightthickness=1, padx=14, pady=5)
+    wellness_frame.pack(pady=(0, 8), fill="x")
+
+    import random
+    water_cues = [
+        "💧 HYDRATION CHECK: Drink a glass of water now to maintain high mental stamina!",
+        "💧 RECHARGE: Take a sip of fresh water, relax your jaw, and let your eyes rest!",
+        "💧 DRINK WATER: Brain performance drops with dehydration — rehydrate now!",
+    ]
+    stretch_cues = [
+        "🧘 POSTURE: Roll your shoulders back and look 20 feet away for 20s.",
+        "🧘 PHYSICAL RESET: Stand up, stretch your arms overhead, and take 3 deep breaths.",
+        "🧘 EYE RELAXATION: Rest your focus on a distant object to reset eye muscles.",
+    ]
+    wellness_text = f"{random.choice(water_cues)}   •   {random.choice(stretch_cues)}"
+    tk.Label(
+        wellness_frame,
+        text=wellness_text,
+        font=("Helvetica", 10, "bold"),
+        fg="#38BDF8",
+        bg="#0F172A",
+    ).pack()
 
     # 📊 FULL GRAPHICAL ANALYTICS DASHBOARD CONTAINER
     stats_container = tk.Frame(

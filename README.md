@@ -47,6 +47,14 @@ Every time you enter a break, the application dynamically computes your session 
   * **Atomic Local Storage:** All sessions are saved atomically to `pomodoro_log.json` (`syncStatus: "pending"`).
   * **100% Backward-Compatible:** Preserves and visualizes your existing 556+ session history.
 
+* **🌐 Background Network Latency & Slowdown Monitor:**
+  * Probes network latency continuously in the background (via reliable TCP/DNS probes to `8.8.8.8`, `1.1.1.1`, and `google.com`).
+  * If your connection experiences high latency (>600ms) or is completely unreachable for **30 consecutive seconds**, it automatically alerts you with:
+    * A **Desktop Notification** (`notify-send`) warning of slow mobile tethering / network degradation.
+    * A sleek, floating top-right **Toast Alert** window reminding you why pages/connections feel stuck.
+    * Automatically notifies you with a green notification when the network recovers.
+  * Configurable thresholds via `.env`: `NETWORK_SLOW_THRESHOLD_MS` (default `600`), `NETWORK_SLOW_DURATION_SECONDS` (default `30`).
+
 * **🛡️ Process Resilience & System Integration:**
   * Single instance process locking via Linux `fcntl.flock` on `pomodoro.lock`.
   * Audio engine supporting PipeWire (`pw-play`), PulseAudio (`paplay`), ALSA (`aplay`), and terminal bell.
