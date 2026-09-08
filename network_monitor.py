@@ -87,14 +87,29 @@ def measure_internet_latency(timeout_sec=2.2):
     return False, None, "All targets unreachable"
 
 
+def find_active_xauthority():
+    """Finds valid Xauthority file on modern Linux desktop systems."""
+    curr = os.environ.get("XAUTHORITY")
+    if curr and Path(curr).exists():
+        return curr
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    if runtime_dir.exists():
+        candidates = sorted(runtime_dir.glob("xauth_*"))
+        if candidates:
+            return str(candidates[-1])
+    home_auth = Path.home() / ".Xauthority"
+    if home_auth.exists():
+        return str(home_auth)
+    return None
+
+
 def _ensure_display_env():
     """Ensures DISPLAY and XAUTHORITY are populated for GUI alerts."""
-    if "DISPLAY" not in os.environ:
+    if "DISPLAY" not in os.environ or not os.environ["DISPLAY"]:
         os.environ["DISPLAY"] = ":0"
-    if "XAUTHORITY" not in os.environ:
-        xauth = Path.home() / ".Xauthority"
-        if xauth.exists():
-            os.environ["XAUTHORITY"] = str(xauth)
+    xauth = find_active_xauthority()
+    if xauth:
+        os.environ["XAUTHORITY"] = xauth
 
 
 def play_alert_sound():
