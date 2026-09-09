@@ -170,121 +170,92 @@ def send_desktop_notification(title, message, urgency="normal"):
         pass
 
 
-class ToastController:
-    """Thread-safe toast manager that allows instant in-place morphing from alert to recovery."""
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.root = None
-        self.card = None
-        self.title_lbl = None
-        self.msg_lbl = None
-        self.auto_close_id = None
+_toast_subprocess = None
+_toast_lock = threading.Lock()
 
-    def show(self, title, message, bg_color="#450A0A", border_color="#EF4444", duration_ms=8000):
-        with self.lock:
-            if self.root and self.root.winfo_exists():
-                # Instantly morph existing toast in-place!
-                try:
-                    self.root.configure(bg=bg_color)
-                    self.card.configure(bg=bg_color, highlightbackground=border_color)
-                    self.title_lbl.configure(text=title, bg=bg_color)
-                    self.msg_lbl.configure(text=message, bg=bg_color)
-                    if self.auto_close_id:
-                        self.root.after_cancel(self.auto_close_id)
-                    self.auto_close_id = self.root.after(duration_ms, self._destroy_safe)
-                    return
-                except Exception:
-                    pass
 
-        def _worker():
+def dismiss_floating_toast():
+    """Immediately terminates any active on-screen toast window."""
+    global _toast_subprocess
+    with _toast_lock:
+        if _toast_subprocess and _toast_subprocess.poll() is None:
             try:
-                import tkinter as tk
-                _ensure_display_env()
-
-                root = tk.Tk()
-                root.title("Network Status Alert")
-                root.overrideredirect(True)
-                root.attributes("-topmost", True)
-                root.configure(bg=bg_color)
-
-                sw = root.winfo_screenwidth()
-                w, h = 380, 96
-                x = max(16, sw - w - 24)
-                y = 42
-                root.geometry(f"{w}x{h}+{x}+{y}")
-
-                card = tk.Frame(root, bg=bg_color, highlightbackground=border_color, highlightthickness=2, padx=14, pady=10)
-                card.pack(fill="both", expand=True)
-
-                top_row = tk.Frame(card, bg=bg_color)
-                top_row.pack(fill="x")
-
-                title_lbl = tk.Label(
-                    top_row,
-                    text=title,
-                    font=("Helvetica", 11, "bold"),
-                    fg="#FEE2E2" if bg_color != "#064E3B" else "#D1FAE5",
-                    bg=bg_color,
-                )
-                title_lbl.pack(side="left")
-
-                close_lbl = tk.Label(
-                    top_row,
-                    text="✕",
-                    font=("Helvetica", 11, "bold"),
-                    fg="#9CA3AF",
-                    bg=bg_color,
-                    cursor="hand2",
-                )
-                close_lbl.pack(side="right")
-                close_lbl.bind("<Button-1>", lambda e: self._destroy_safe())
-
-                msg_lbl = tk.Label(
-                    card,
-                    text=message,
-                    font=("Helvetica", 9),
-                    fg="#F9FAFB",
-                    bg=bg_color,
-                    justify="left",
-                    wraplength=348,
-                )
-                msg_lbl.pack(anchor="w", pady=(4, 0))
-
-                card.bind("<Button-1>", lambda e: self._destroy_safe())
-                msg_lbl.bind("<Button-1>", lambda e: self._destroy_safe())
-
-                with self.lock:
-                    self.root = root
-                    self.card = card
-                    self.title_lbl = title_lbl
-                    self.msg_lbl = msg_lbl
-                    self.auto_close_id = root.after(duration_ms, self._destroy_safe)
-
-                root.mainloop()
-            except Exception as e:
-                print(f"[NetworkMonitor] GUI Toast error: {e}", file=sys.stderr)
-
-        t = threading.Thread(target=_worker, daemon=True)
-        t.start()
-
-    def _destroy_safe(self):
-        with self.lock:
-            if self.root:
-                try:
-                    self.root.destroy()
-                except Exception:
-                    pass
-                self.root = None
-                self.card = None
-                self.title_lbl = None
-                self.msg_lbl = None
-                self.auto_close_id = None
+                _toast_subprocess.terminate()
+                _toast_subprocess.kill()
+            except Exception:
+                pass
+            _toast_subprocess = None
 
 
-_toast_controller = ToastController()
+def show_floating_toast(title, message, bg_color="#450A0A", border_color="#EF4444", duration_ms=8000):
+    """
+    Spawns an isolated, self-terminating subprocess toast window.
+    Guaranteed to auto-exit after duration_ms or on click.
+    Can be instantly dismissed via dismiss_floating_toast().
+    """
+    global _toast_subprocess
+    _ensure_display_env()
 
-def show_floating_toast(title, message, bg_color="#7F1D1D", border_color="#EF4444", duration_ms=8000):
-    _toast_controller.show(title, message, bg_color=bg_color, border_color=border_color, duration_ms=duration_ms)
+    dismiss_floating_toast()
+
+    display = os.environ.get("DISPLAY", ":0")
+    xauth = os.environ.get("XAUTHORITY", "")
+
+    toast_code = f"""
+import os, sys, tkinter as tk
+os.environ['DISPLAY'] = {display!r}
+if {xauth!r}:
+    os.environ['XAUTHORITY'] = {xauth!r}
+
+try:
+    root = tk.Tk()
+    root.title('Network Alert')
+    root.overrideredirect(True)
+    root.attributes('-topmost', True)
+    root.configure(bg={bg_color!r})
+
+    sw = root.winfo_screenwidth()
+    w, h = 380, 96
+    x = max(16, sw - w - 24)
+    y = 42
+    root.geometry(f'{{w}}x{{h}}+{{x}}+{{y}}')
+
+    card = tk.Frame(root, bg={bg_color!r}, highlightbackground={border_color!r}, highlightthickness=2, padx=14, pady=10)
+    card.pack(fill='both', expand=True)
+
+    top_row = tk.Frame(card, bg={bg_color!r})
+    top_row.pack(fill='x')
+
+    fg_title = '#FEE2E2' if {bg_color!r} != '#064E3B' else '#D1FAE5'
+    title_lbl = tk.Label(top_row, text={title!r}, font=('Helvetica', 11, 'bold'), fg=fg_title, bg={bg_color!r})
+    title_lbl.pack(side='left')
+
+    close_lbl = tk.Label(top_row, text='✕', font=('Helvetica', 11, 'bold'), fg='#9CA3AF', bg={bg_color!r}, cursor='hand2')
+    close_lbl.pack(side='right')
+    close_lbl.bind('<Button-1>', lambda e: sys.exit(0))
+
+    msg_lbl = tk.Label(card, text={message!r}, font=('Helvetica', 9), fg='#F9FAFB', bg={bg_color!r}, justify='left', wraplength=348)
+    msg_lbl.pack(anchor='w', pady=(4, 0))
+
+    card.bind('<Button-1>', lambda e: sys.exit(0))
+    msg_lbl.bind('<Button-1>', lambda e: sys.exit(0))
+    title_lbl.bind('<Button-1>', lambda e: sys.exit(0))
+
+    root.after({duration_ms}, lambda: sys.exit(0))
+    root.mainloop()
+except Exception:
+    sys.exit(0)
+"""
+
+    with _toast_lock:
+        try:
+            _toast_subprocess = subprocess.Popen(
+                [sys.executable, "-c", toast_code],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as e:
+            print(f"[NetworkMonitor] Subprocess toast spawn error: {e}", file=sys.stderr)
 
 
 class NetworkMonitor:

@@ -698,13 +698,27 @@ def run_work_session(work_seconds):
             )
             submit_btn.pack()
 
+            def _keep_on_top(event=None):
+                try:
+                    root.attributes("-topmost", True)
+                    root.lift()
+                except Exception:
+                    pass
+
+            root.bind("<FocusOut>", lambda e: root.after(100, _keep_on_top))
+
             last_timer_tick = time.time()
+            last_topmost_check = time.time()
             while not prompt_state["submitted"]:
+                now_tick = time.time()
+                if now_tick - last_topmost_check >= 0.5:
+                    last_topmost_check = now_tick
+                    _keep_on_top()
+
                 root.update()
                 time.sleep(0.05)
 
                 if not prompt_state["user_interacting"]:
-                    now_tick = time.time()
                     if now_tick - last_timer_tick >= 1.0:
                         last_timer_tick = now_tick
                         prompt_state["timer_sec"] -= 1
