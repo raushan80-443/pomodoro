@@ -112,14 +112,24 @@ def _ensure_display_env():
         os.environ["XAUTHORITY"] = xauth
 
 
-def play_alert_sound():
-    """Plays audio chime alert."""
-    sound_files = [
-        "/usr/share/sounds/freedesktop/stereo/bell.oga",
-        "/usr/share/sounds/freedesktop/stereo/message.oga",
-        "/usr/share/sounds/oxygen/stereo/dialog-warning.ogg",
-        "/usr/share/sounds/alsa/Front_Center.wav",
-    ]
+def play_alert_sound(mode="warning"):
+    """Plays audio chime alert for warning or positive recovery."""
+    if mode == "recovery":
+        sound_files = [
+            "/usr/share/sounds/freedesktop/stereo/network-connectivity-established.oga",
+            "/usr/share/sounds/freedesktop/stereo/complete.oga",
+            "/usr/share/sounds/freedesktop/stereo/message.oga",
+            "/usr/share/sounds/oxygen/stereo/dialog-information.ogg",
+        ]
+    else:
+        sound_files = [
+            "/usr/share/sounds/freedesktop/stereo/network-connectivity-lost.oga",
+            "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga",
+            "/usr/share/sounds/freedesktop/stereo/bell.oga",
+            "/usr/share/sounds/oxygen/stereo/dialog-warning.ogg",
+            "/usr/share/sounds/alsa/Front_Center.wav",
+        ]
+
     for player in ["pw-play", "paplay", "aplay"]:
         for sf in sound_files:
             if Path(sf).exists():
@@ -128,11 +138,14 @@ def play_alert_sound():
                     return True
                 except Exception:
                     pass
+
     try:
-        subprocess.Popen(["spd-say", "-t", "female1", "network slow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        phrase = "internet restored" if mode == "recovery" else "network slow"
+        subprocess.Popen(["spd-say", "-t", "female1", phrase], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
         pass
+
     print("\a", end="", flush=True)
     return True
 
@@ -145,7 +158,7 @@ def send_desktop_notification(title, message, urgency="normal"):
             [
                 "notify-send",
                 "-u", urgency,
-                "-t", "8000",
+                "-t", "6000",
                 "-a", "Network Monitor",
                 title,
                 message,
@@ -157,75 +170,121 @@ def send_desktop_notification(title, message, urgency="normal"):
         pass
 
 
+class ToastController:
+    """Thread-safe toast manager that allows instant in-place morphing from alert to recovery."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.root = None
+        self.card = None
+        self.title_lbl = None
+        self.msg_lbl = None
+        self.auto_close_id = None
+
+    def show(self, title, message, bg_color="#450A0A", border_color="#EF4444", duration_ms=8000):
+        with self.lock:
+            if self.root and self.root.winfo_exists():
+                # Instantly morph existing toast in-place!
+                try:
+                    self.root.configure(bg=bg_color)
+                    self.card.configure(bg=bg_color, highlightbackground=border_color)
+                    self.title_lbl.configure(text=title, bg=bg_color)
+                    self.msg_lbl.configure(text=message, bg=bg_color)
+                    if self.auto_close_id:
+                        self.root.after_cancel(self.auto_close_id)
+                    self.auto_close_id = self.root.after(duration_ms, self._destroy_safe)
+                    return
+                except Exception:
+                    pass
+
+        def _worker():
+            try:
+                import tkinter as tk
+                _ensure_display_env()
+
+                root = tk.Tk()
+                root.title("Network Status Alert")
+                root.overrideredirect(True)
+                root.attributes("-topmost", True)
+                root.configure(bg=bg_color)
+
+                sw = root.winfo_screenwidth()
+                w, h = 380, 96
+                x = max(16, sw - w - 24)
+                y = 42
+                root.geometry(f"{w}x{h}+{x}+{y}")
+
+                card = tk.Frame(root, bg=bg_color, highlightbackground=border_color, highlightthickness=2, padx=14, pady=10)
+                card.pack(fill="both", expand=True)
+
+                top_row = tk.Frame(card, bg=bg_color)
+                top_row.pack(fill="x")
+
+                title_lbl = tk.Label(
+                    top_row,
+                    text=title,
+                    font=("Helvetica", 11, "bold"),
+                    fg="#FEE2E2" if bg_color != "#064E3B" else "#D1FAE5",
+                    bg=bg_color,
+                )
+                title_lbl.pack(side="left")
+
+                close_lbl = tk.Label(
+                    top_row,
+                    text="✕",
+                    font=("Helvetica", 11, "bold"),
+                    fg="#9CA3AF",
+                    bg=bg_color,
+                    cursor="hand2",
+                )
+                close_lbl.pack(side="right")
+                close_lbl.bind("<Button-1>", lambda e: self._destroy_safe())
+
+                msg_lbl = tk.Label(
+                    card,
+                    text=message,
+                    font=("Helvetica", 9),
+                    fg="#F9FAFB",
+                    bg=bg_color,
+                    justify="left",
+                    wraplength=348,
+                )
+                msg_lbl.pack(anchor="w", pady=(4, 0))
+
+                card.bind("<Button-1>", lambda e: self._destroy_safe())
+                msg_lbl.bind("<Button-1>", lambda e: self._destroy_safe())
+
+                with self.lock:
+                    self.root = root
+                    self.card = card
+                    self.title_lbl = title_lbl
+                    self.msg_lbl = msg_lbl
+                    self.auto_close_id = root.after(duration_ms, self._destroy_safe)
+
+                root.mainloop()
+            except Exception as e:
+                print(f"[NetworkMonitor] GUI Toast error: {e}", file=sys.stderr)
+
+        t = threading.Thread(target=_worker, daemon=True)
+        t.start()
+
+    def _destroy_safe(self):
+        with self.lock:
+            if self.root:
+                try:
+                    self.root.destroy()
+                except Exception:
+                    pass
+                self.root = None
+                self.card = None
+                self.title_lbl = None
+                self.msg_lbl = None
+                self.auto_close_id = None
+
+
+_toast_controller = ToastController()
+
 def show_floating_toast(title, message, bg_color="#7F1D1D", border_color="#EF4444", duration_ms=8000):
-    """
-    Displays a floating toast popup on the screen.
-    Does not take away keyboard focus so typing is never interrupted.
-    """
-    def _worker():
-        try:
-            import tkinter as tk
-            _ensure_display_env()
-
-            root = tk.Tk()
-            root.title("Network Status Alert")
-            root.overrideredirect(True)
-            root.attributes("-topmost", True)
-            root.configure(bg=bg_color)
-
-            sw = root.winfo_screenwidth()
-            w, h = 380, 96
-            x = max(16, sw - w - 24)
-            y = 42
-            root.geometry(f"{w}x{h}+{x}+{y}")
-
-            card = tk.Frame(root, bg=bg_color, highlightbackground=border_color, highlightthickness=2, padx=14, pady=10)
-            card.pack(fill="both", expand=True)
-
-            top_row = tk.Frame(card, bg=bg_color)
-            top_row.pack(fill="x")
-
-            title_lbl = tk.Label(
-                top_row,
-                text=title,
-                font=("Helvetica", 11, "bold"),
-                fg="#FEE2E2",
-                bg=bg_color,
-            )
-            title_lbl.pack(side="left")
-
-            close_lbl = tk.Label(
-                top_row,
-                text="✕",
-                font=("Helvetica", 11, "bold"),
-                fg="#9CA3AF",
-                bg=bg_color,
-                cursor="hand2",
-            )
-            close_lbl.pack(side="right")
-            close_lbl.bind("<Button-1>", lambda e: root.destroy())
-
-            msg_lbl = tk.Label(
-                card,
-                text=message,
-                font=("Helvetica", 9),
-                fg="#F9FAFB",
-                bg=bg_color,
-                justify="left",
-                wraplength=348,
-            )
-            msg_lbl.pack(anchor="w", pady=(4, 0))
-
-            card.bind("<Button-1>", lambda e: root.destroy())
-            msg_lbl.bind("<Button-1>", lambda e: root.destroy())
-
-            root.after(duration_ms, root.destroy)
-            root.mainloop()
-        except Exception as e:
-            print(f"[NetworkMonitor] GUI Toast error: {e}", file=sys.stderr)
-
-    t = threading.Thread(target=_worker, daemon=True)
-    t.start()
+    _toast_controller.show(title, message, bg_color=bg_color, border_color=border_color, duration_ms=duration_ms)
 
 
 class NetworkMonitor:
@@ -246,7 +305,9 @@ class NetworkMonitor:
             self.alert_active = False
             return "NO_LOCAL_NETWORK"
 
-        is_connected, latency, target = measure_internet_latency()
+        # If alert is active, use fast timeout (1.0s) to detect recovery without lag
+        probe_timeout = 1.0 if self.alert_active else 2.2
+        is_connected, latency, target = measure_internet_latency(timeout_sec=probe_timeout)
         is_slow = (not is_connected) or (latency is not None and latency >= self.slow_threshold_ms)
 
         now = time.time()
@@ -268,32 +329,38 @@ class NetworkMonitor:
                         msg = f"Connected to {iface}, but latency is very high ({latency}ms) for {int(duration)}s. Connections may lag."
 
                     print(f"\n[NetworkMonitor Alert] {title}\n  {msg}\n", flush=True)
-                    play_alert_sound()
+                    play_alert_sound("warning")
                     send_desktop_notification(title, msg, urgency="critical")
-                    show_floating_toast(title, msg, bg_color="#450A0A", border_color="#EF4444")
+                    show_floating_toast(title, msg, bg_color="#450A0A", border_color="#EF4444", duration_ms=12000)
                     return "ALERT_SLOW"
             return "DEGRADED_WAITING"
         else:
-            # Network is healthy
+            # Network is healthy!
             if self.alert_active:
+                # ⚡ QUICK RECOVERY CONFIRMATION:
                 self.alert_active = False
                 rec_title = "✓ Internet Restored"
-                rec_msg = f"Latency normal ({latency}ms via {target}). Internet connection is healthy."
-                print(f"\n[NetworkMonitor Recovery] {rec_title}: {rec_msg}\n", flush=True)
+                rec_msg = f"Latency normal ({latency}ms via {target}). Internet connection is healthy!"
+                print(f"\n[NetworkMonitor Quick Recovery] {rec_title}: {rec_msg}\n", flush=True)
+                play_alert_sound("recovery")
                 send_desktop_notification(rec_title, rec_msg, urgency="low")
-                show_floating_toast(rec_title, rec_msg, bg_color="#064E3B", border_color="#10B981", duration_ms=5000)
+                # Immediately morph / replace toast to green
+                show_floating_toast(rec_title, rec_msg, bg_color="#064E3B", border_color="#10B981", duration_ms=4000)
 
             self.slow_started_at = None
             return "HEALTHY"
 
     def run_forever(self):
-        print(f"[NetworkMonitor] Monitoring internet health (Alerts when slow >{self.slow_threshold_ms}ms or down for >{self.slow_duration}s while connected to Wi-Fi).")
+        print(f"[NetworkMonitor] Monitoring internet health (Alert on slow >{self.slow_threshold_ms}ms or down >{self.slow_duration}s; fast 1s recovery polling).")
         while self.running:
             try:
                 self.check_once()
             except Exception as e:
                 print(f"[NetworkMonitor] Error in check loop: {e}", file=sys.stderr)
-            time.sleep(CHECK_INTERVAL_SECONDS)
+
+            # Fast 1.0s polling during alerts for INSTANT recovery response, 4s when normal
+            poll_interval = 1.0 if self.alert_active else CHECK_INTERVAL_SECONDS
+            time.sleep(poll_interval)
 
 
 _daemon_thread = None
