@@ -1034,32 +1034,77 @@ def run_break_session(
     timer_status_badge.pack(pady=(2, 4))
 
     # If Walk Break: show sleep action button with pill styling
+    # If Walk Break: auto-sleep PC after 30 seconds for 10-minute walk break
+    walk_auto_sleep_state = {
+        "remaining": 30,
+        "triggered": False,
+        "cancelled": False,
+    }
+    walk_countdown_lbl = None
+    walk_sleep_btn = None
+    cancel_sleep_btn = None
+
     if is_walk_break:
+        try:
+            subprocess.Popen(
+                ["notify-send", "-u", "critical", "-t", "5000", "🚶 10-Minute Walk Break", "PC will automatically go to sleep in 30 seconds for your walk break."],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+
         walk_action_frame = tk.Frame(main_frame, bg="#064E3B", highlightbackground="#10B981", highlightthickness=2, padx=22, pady=10)
         walk_action_frame.pack(fill="x", pady=(0, 12))
 
         def trigger_sleep_walk():
+            if walk_auto_sleep_state["triggered"]:
+                return
+            walk_auto_sleep_state["triggered"] = True
             state["interaction_log"].append({"event": "putPcToSleep", "at": int(time.time() - started_at)})
+            if walk_sleep_btn:
+                walk_sleep_btn.config(text="💤 ( Sleeping... )", state="disabled")
+            if cancel_sleep_btn:
+                cancel_sleep_btn.pack_forget()
+            walk_countdown_lbl.config(
+                text="💤 PUTTING PC TO SLEEP NOW... Step away & enjoy your 10-minute walk!",
+                fg="#FBBF24",
+            )
+            root.update()
             try:
                 subprocess.Popen(["systemctl", "suspend"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except Exception:
                 try:
-                    subprocess.Popen(["loginctl", "lock-session"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    subprocess.Popen(["loginctl", "suspend"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 except Exception:
                     pass
 
-        tk.Label(
-            walk_action_frame,
-            text="🌿 TIME FOR A WALK: Step away from your computer for active physical recovery!",
-            font=("Helvetica", 13, "bold"),
-            fg="#ECFDF5",
-            bg="#064E3B",
-        ).pack(side="left", padx=6)
+        def cancel_auto_sleep():
+            walk_auto_sleep_state["cancelled"] = True
+            walk_countdown_lbl.config(
+                text="🌿 Auto-sleep cancelled. Feel free to step away and walk, or relax at your desk.",
+                fg="#ECFDF5",
+            )
+            if cancel_sleep_btn:
+                cancel_sleep_btn.pack_forget()
+            state["interaction_log"].append({"event": "cancelAutoSleep", "at": int(time.time() - started_at)})
 
-        tk.Button(
+        walk_countdown_lbl = tk.Label(
             walk_action_frame,
-            text="💤 ( Put PC To Sleep & Walk )",
-            font=("Helvetica", 12, "bold"),
+            text="💤 AUTO-SLEEP IN 30s: PC will sleep for your 10-minute walk break! Step away & walk.",
+            font=("Helvetica", 13, "bold"),
+            fg="#FDE047",
+            bg="#064E3B",
+        )
+        walk_countdown_lbl.pack(side="left", padx=6)
+
+        walk_btn_box = tk.Frame(walk_action_frame, bg="#064E3B")
+        walk_btn_box.pack(side="right")
+
+        walk_sleep_btn = tk.Button(
+            walk_btn_box,
+            text="💤 ( Sleep Now )",
+            font=("Helvetica", 11, "bold"),
             bg="#10B981",
             fg="#020617",
             activebackground="#34D399",
@@ -1067,10 +1112,28 @@ def run_break_session(
             relief="flat",
             bd=0,
             cursor="hand2",
-            padx=22,
-            pady=8,
+            padx=18,
+            pady=6,
             command=trigger_sleep_walk,
-        ).pack(side="right", padx=6)
+        )
+        walk_sleep_btn.pack(side="left", padx=4)
+
+        cancel_sleep_btn = tk.Button(
+            walk_btn_box,
+            text="✋ ( Cancel Sleep )",
+            font=("Helvetica", 11, "bold"),
+            bg="#1E293B",
+            fg="#94A3B8",
+            activebackground="#334155",
+            activeforeground="#FFFFFF",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=14,
+            pady=6,
+            command=cancel_auto_sleep,
+        )
+        cancel_sleep_btn.pack(side="left", padx=4)
 
     # 4. MIDDLE SPLIT: 2 Motivational Charts (Left) & Habit Routine Checklist (Right)
     mid_container = tk.Frame(main_frame, bg="#070A11")
@@ -1815,6 +1878,17 @@ def run_break_session(
         except Exception:
             break
 
+        # Auto-sleep countdown for 10-minute walk break
+        if is_walk_break and not walk_auto_sleep_state["triggered"] and not walk_auto_sleep_state["cancelled"]:
+            walk_auto_sleep_state["remaining"] -= 1
+            if walk_auto_sleep_state["remaining"] > 0:
+                if walk_countdown_lbl:
+                    walk_countdown_lbl.config(
+                        text=f"💤 AUTO-SLEEP IN {walk_auto_sleep_state['remaining']}s: PC will sleep for your 10-minute walk break! Step away & walk."
+                    )
+            else:
+                trigger_sleep_walk()
+
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
         elif state["remaining"] <= 20 and not state["beep_20sec_played"]:
@@ -1825,12 +1899,35 @@ def run_break_session(
         time.sleep(1)
         tick_after_sleep = time.time()
         if _sleep_gap_detected(last_tick_at, tick_after_sleep):
-            state["suspend_detected"] = True
-            break
+            elapsed_gap = int(round(tick_after_sleep - last_tick_at))
+            last_tick_at = tick_after_sleep
+            state["active_elapsed_seconds"] += max(1, elapsed_gap)
+            state["remaining"] = max(0, state["remaining"] - elapsed_gap)
 
-        state["remaining"] -= 1
-        state["active_elapsed_seconds"] += max(1, int(round(tick_after_sleep - tick_before_sleep)))
-        last_tick_at = tick_after_sleep
+            if is_walk_break:
+                walk_auto_sleep_state["triggered"] = True
+                if walk_countdown_lbl:
+                    walk_countdown_lbl.config(
+                        text="🌿 WELCOME BACK FROM YOUR WALK! Hope you feel refreshed & re-energized.",
+                        fg="#34D399",
+                    )
+                if walk_sleep_btn:
+                    walk_sleep_btn.config(text="✓ ( Woke Up from Sleep )", state="disabled")
+                if cancel_sleep_btn and cancel_sleep_btn.winfo_exists():
+                    cancel_sleep_btn.pack_forget()
+                play_beep()
+                state["interaction_log"].append({
+                    "event": "wokeFromWalkSleep",
+                    "sleptSeconds": elapsed_gap,
+                    "at": int(time.time() - started_at),
+                })
+            else:
+                state["suspend_detected"] = True
+                break
+        else:
+            state["remaining"] -= 1
+            state["active_elapsed_seconds"] += max(1, int(round(tick_after_sleep - tick_before_sleep)))
+            last_tick_at = tick_after_sleep
 
     actual_break_seconds = state["active_elapsed_seconds"] or int(time.time() - started_at)
     if state["suspend_detected"]:
