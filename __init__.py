@@ -228,7 +228,7 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
 
     if not work_result.get("guiAvailable", False):
         print("GUI was not available for the work session; stopping pomodoro entirely.")
-        return True
+        return True, None, None
 
     if work_result.get("sessionInterruptedBySleep"):
         print("System sleep detected during work; saving the session and starting a fresh cycle.")
@@ -250,20 +250,28 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
             "sessionInterruptedBySleep": True,
         }
         log_session(session_record)
-        return None
+        return False, None, None
 
     print("get some rest")
     stats = _load_summary_stats(current_work_seconds=work_result.get("actualWorkSeconds", 0))
+    today_sessions = stats.get("today_sessions", 1)
+
+    # Walk break check: after every 2 sessions (e.g. session 2, 4, 6...), third session has 10 min break
+    is_walk_break = (today_sessions > 0 and today_sessions % 2 == 0)
+    effective_break_seconds = (10 * 60) if is_walk_break else break_seconds
+
     break_result = run_break_session(
-        break_seconds=break_seconds,
+        break_seconds=effective_break_seconds,
         default_next_work_seconds=WORK_TIME_SECONDS,
         default_next_break_seconds=BREAK_TIME_SECONDS,
         stats=stats,
+        is_walk_break=is_walk_break,
+        session_number=today_sessions,
     )
 
     if break_result.get("sessionCanceled"):
         print("Break session could not start because GUI was unavailable; skipping log entry.")
-        return None
+        return False, None, None
 
     if break_result.get("sessionInterruptedBySleep"):
         print("System sleep detected during break; saving the session and starting a fresh cycle.")
@@ -281,9 +289,14 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         "plannedBreakSeconds": break_result["plannedBreakSeconds"],
         "workEndedBy": work_result["workEndedBy"],
         "breakEndedBy": break_result["breakEndedBy"],
-        "sessionNote": work_result.get("sessionNote", ""),
+        "sessionNote": "",
+        "sessionType": break_result.get("sessionType", "study"),
+        "activityType": break_result.get("sessionType", "study"),
+        "isWalkBreak": is_walk_break,
+        "todaySessionNumber": today_sessions,
         "interactionLog": work_result["interactionLog"] + break_result["interactionLog"],
         "productivityRating": break_result.get("productivityRating", 0),
+        "routineSelected": break_result.get("routineSelected", "nothing"),
     }
     log_session(session_record)
 
@@ -291,10 +304,9 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
     if break_result.get("exitApp"):
         print("Exit requested during break — saved session, quitting.")
         sync_pending_sessions()
-        return True
+        return True, None, None
 
-    # No return value needed; caller should not rely on nextWork/nextBreak values.
-    return None
+    return False, break_result.get("nextWorkSeconds"), break_result.get("nextBreakSeconds")
 
 
 def main():
@@ -335,13 +347,10 @@ def main():
         work_seconds = next_work_override or WORK_TIME_SECONDS
         break_seconds = next_break_override or BREAK_TIME_SECONDS
 
-        # Overrides are one-cycle only. They are reapplied only if user sets them
-        # again in the current break screen.
         next_work_override = None
         next_break_override = None
 
-        # run_pomodoro_cycle may return True to indicate the app should stop
-        should_exit = run_pomodoro_cycle(
+        should_exit, next_work, next_break = run_pomodoro_cycle(
             cycle_number=cycle_number,
             work_seconds=work_seconds,
             break_seconds=break_seconds,
@@ -351,9 +360,8 @@ def main():
             print("Shutdown requested; stopping pomodoro cycles.")
             return
 
-        # There is no returned override from the cycle; use defaults.
-        next_work_seconds = WORK_TIME_SECONDS
-        next_break_seconds = BREAK_TIME_SECONDS
+        next_work_override = next_work
+        next_break_override = next_break
 
 
 if __name__ == "__main__":

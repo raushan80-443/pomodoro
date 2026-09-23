@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import random
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -17,8 +18,175 @@ MIN_DURATION_SECONDS = 60
 SUSPEND_GAP_SECONDS = 10
 _HEADLESS_WARNING_EMITTED = False
 
+MOTIVATIONAL_QUOTES = [
+    "Focus is a muscle: every deep work session strengthens your discipline.",
+    "Small daily disciplines compounding over time produce extraordinary results.",
+    "Deep work is the superpower of the 21st century. Protect your attention.",
+    "Discipline is choosing between what you want now and what you want most.",
+    "Rest is not idleness; it is the vital recharge that fuels breakthrough thinking.",
+    "Energy flows where attention goes. Consistency creates momentum.",
+    "You don't need more time, you need more focused, undistracted presence.",
+    "One session at a time. Show up, lock in, execute, recharge.",
+]
 
-def _generate_break_dashboard_image(current_work_seconds=0, display_width=920, display_height=450):
+DEFAULT_ROUTINE_SCHEDULE = {
+    "morning": {
+        "name": "🌅 MORNING ROUTINE (7:00 - 11:00 AM)",
+        "tasks": [
+            {
+                "id": "brush",
+                "title": "🪥 Go and do brush / Wash face",
+                "desc": "Freshen up, clean teeth, and splash cold water to wake up.",
+            },
+            {
+                "id": "exercise",
+                "title": "🏋️ Exercise time / Workout & physical training",
+                "desc": "Exercise time! Pushups, stretching, cardio, or morning workout.",
+            },
+            {
+                "id": "bath",
+                "title": "🚿 Take a bath and freshen up",
+                "desc": "Take a refreshing bath to reset body temperature & elevate alertness.",
+            },
+            {
+                "id": "breakfast",
+                "title": "🍳 Eat some food / Have breakfast",
+                "desc": "Fuel your brain & body with a nourishing, healthy breakfast.",
+            },
+            {
+                "id": "water_am",
+                "title": "💧 Drink a tall glass of water",
+                "desc": "Rehydrate after sleep to kickstart cognitive energy.",
+            },
+            {
+                "id": "stretch_am",
+                "title": "🧘 5-minute stretch & sunlight",
+                "desc": "Loosen up spine and get natural light exposure.",
+            },
+        ],
+    },
+    "afternoon": {
+        "name": "☀️ AFTERNOON RECHARGE & HYDRATION",
+        "tasks": [
+            {
+                "id": "water_pm",
+                "title": "💧 Drink a full glass of water",
+                "desc": "Brain speed and stamina drop with even 1% dehydration. Rehydrate now!",
+            },
+            {
+                "id": "exercise_pm",
+                "title": "🏋️ Quick exercise / Mobility & body movement",
+                "desc": "10 squats, pushups, jumping jacks, or brisk walk to recharge energy.",
+            },
+            {
+                "id": "eyes_pm",
+                "title": "👀 20-20-20 Eye relaxation",
+                "desc": "Focus on an object 20 feet away for 20 seconds to reset eye muscles.",
+            },
+            {
+                "id": "posture_pm",
+                "title": "🧘 Posture reset & shoulder roll",
+                "desc": "Roll shoulders back, unlock jaw, and straighten spinal alignment.",
+            },
+            {
+                "id": "walk_pm",
+                "title": "🚶 Quick 2-min walk & stretch",
+                "desc": "Step away from desk to restore active blood circulation.",
+            },
+        ],
+    },
+    "evening": {
+        "name": "🌆 EVENING RESET & WIND-DOWN",
+        "tasks": [
+            {
+                "id": "water_eve",
+                "title": "💧 Hydration check: Drink fresh water",
+                "desc": "Keep hydration steady through the evening.",
+            },
+            {
+                "id": "exercise_eve",
+                "title": "🏋️ Evening walk & light workout",
+                "desc": "Brisk walking or evening core & mobility exercise.",
+            },
+            {
+                "id": "walk_eve",
+                "title": "🚶 Evening stroll & fresh air",
+                "desc": "Step outside for 10 minutes to decompress cognitive load.",
+            },
+            {
+                "id": "plan_eve",
+                "title": "📋 Review accomplishments & plan next day",
+                "desc": "List your top 3 priority tasks for tomorrow morning.",
+            },
+            {
+                "id": "relax_eve",
+                "title": "🌙 Dim ambient light & eye reset",
+                "desc": "Transition nervous system toward restorative rest.",
+            },
+        ],
+    },
+}
+
+
+def _get_time_slot():
+    hour = datetime.now().hour
+    if 5 <= hour < 12:
+        return "morning"
+    elif 12 <= hour < 17:
+        return "afternoon"
+    else:
+        return "evening"
+
+
+def _load_routine_completions():
+    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    if not log_path.exists():
+        return []
+    try:
+        data = json.loads(log_path.read_text())
+        completions = data.get("routineCompletions", [])
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        return [c for c in completions if c.get("date") == today_str]
+    except Exception:
+        return []
+
+
+def _save_routine_completion(task_id, task_title=""):
+    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    now_iso = datetime.now().isoformat() + "Z"
+
+    data = {"appName": "pomodoro", "createdAt": now_iso, "events": []}
+    if log_path.exists():
+        try:
+            data = json.loads(log_path.read_text())
+        except Exception:
+            data = {"appName": "pomodoro", "createdAt": now_iso, "events": []}
+
+    completions = data.get("routineCompletions", [])
+    already_done = any(c.get("taskId") == task_id and c.get("date") == today_str for c in completions)
+    if not already_done:
+        completions.append({
+            "taskId": task_id,
+            "taskTitle": task_title,
+            "date": today_str,
+            "completedAt": now_iso,
+        })
+        data["routineCompletions"] = completions
+        temp_path = log_path.with_suffix(".json.tmp")
+        try:
+            temp_path.write_text(json.dumps(data, indent=2))
+            os.replace(temp_path, log_path)
+        except Exception:
+            log_path.write_text(json.dumps(data, indent=2))
+
+
+def _generate_break_dashboard_image(current_work_seconds=0, display_width=860, display_height=260):
+    """
+    Generates EXACTLY 2 clean, modern, motivational charts in a sleek executive dark theme:
+    1. Daily Consistency (Trend over recent weeks with 3h goal line)
+    2. Cumulative Growth (Total deep work hours compounding over time)
+    """
     log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
     if not log_path.exists():
         events = []
@@ -35,7 +203,7 @@ def _generate_break_dashboard_image(current_work_seconds=0, display_width=920, d
             "workTimeSeconds": current_work_seconds,
             "breakTimeSeconds": 0,
             "productivityRating": 0,
-            "workEndedBy": "timer"
+            "workEndedBy": "timer",
         }]
 
     if not events:
@@ -45,92 +213,117 @@ def _generate_break_dashboard_image(current_work_seconds=0, display_width=920, d
     df["started_at"] = pd.to_datetime(df["sessionStartedAt"], errors="coerce")
     df["date"] = df["started_at"].dt.date
     df["work_hours"] = df["workTimeSeconds"].fillna(df.get("workTimeMinutes", 0) * 60) / 3600
-    df["rating"] = pd.to_numeric(df.get("productivityRating", 0), errors="coerce").fillna(0)
 
-    plt.style.use("dark_background")
-    fig = plt.figure(figsize=(10, 5.2), facecolor="#0B0F19")
-    fig.suptitle("POMODORO ANALYTICS & PRODUCTIVITY DASHBOARD", fontsize=13, fontweight="bold", color="#F3F4F6", y=0.97)
-
-    # 1. Daily Work Hours Trend
-    ax1 = fig.add_subplot(2, 2, 1, facecolor="#111827")
     daily_work = df.groupby("date")["work_hours"].sum().reset_index()
     daily_work["date"] = pd.to_datetime(daily_work["date"])
     daily_work = daily_work.sort_values("date")
 
-    ax1.plot(daily_work["date"], daily_work["work_hours"], color="#38BDF8", linewidth=1.5)
-    ax1.fill_between(daily_work["date"], daily_work["work_hours"], color="#38BDF8", alpha=0.2)
-    ax1.set_title("Daily Focus Work Hours Over Time", fontsize=10, fontweight="bold", color="#E5E7EB", pad=6)
-    ax1.set_ylabel("Hours", color="#9CA3AF", fontsize=8)
-    ax1.grid(True, linestyle="--", alpha=0.15)
-    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    ax1.tick_params(colors="#9CA3AF", labelsize=7)
+    if daily_work.empty:
+        return None
 
-    # 2. Rating Distribution
-    ax2 = fig.add_subplot(2, 2, 2, facecolor="#111827")
-    rating_counts = df[df["rating"] > 0]["rating"].value_counts().sort_index()
-    if rating_counts.empty:
-        rating_counts = pd.Series({3: 1})
-    rating_labels = [f"{int(r)} Star" for r in rating_counts.index]
-    colors = ["#EF4444", "#F59E0B", "#FBBF24", "#10B981", "#059669"]
-
-    bars = ax2.bar(rating_labels, rating_counts.values, color=colors[:len(rating_counts)], width=0.45)
-    ax2.set_title("Productivity Rating Distribution", fontsize=10, fontweight="bold", color="#E5E7EB", pad=6)
-    ax2.set_ylabel("Session Count", color="#9CA3AF", fontsize=8)
-    ax2.grid(axis="y", linestyle="--", alpha=0.15)
-    ax2.tick_params(colors="#9CA3AF", labelsize=7)
-
-    for bar in bars:
-        yval = bar.get_height()
-        ax2.text(bar.get_x() + bar.get_width()/2.0, yval + 1, f"{int(yval)}", ha="center", va="bottom", color="#F3F4F6", fontsize=7, fontweight="bold")
-
-    # 3. Session End Reasons
-    ax3 = fig.add_subplot(2, 2, 3, facecolor="#111827")
-    end_reasons = df["workEndedBy"].value_counts()
-    pie_colors = ["#6366F1", "#EC4899", "#8B5CF6", "#14B8A6", "#F59E0B"]
-
-    wedges, texts, autotexts = ax3.pie(
-        end_reasons.values,
-        labels=end_reasons.index,
-        colors=pie_colors[:len(end_reasons)],
-        autopct="%1.1f%%",
-        pctdistance=0.7,
-        startangle=140,
-        textprops=dict(color="#F3F4F6", fontsize=7, fontweight="bold")
+    plt.style.use("dark_background")
+    fig = plt.figure(figsize=(9.6, 3.4), facecolor="#0F1626")
+    fig.suptitle(
+        "REAL-TIME FOCUS MOMENTUM & GROWTH",
+        fontsize=10.5,
+        fontweight="bold",
+        color="#38BDF8",
+        y=0.98,
     )
-    centre_circle = plt.Circle((0, 0), 0.55, fc="#111827")
-    ax3.add_artist(centre_circle)
-    ax3.set_title("Work Session End Trigger Breakdown", fontsize=10, fontweight="bold", color="#E5E7EB", pad=6)
 
-    # 4. Cumulative Focus Time Growth
-    ax4 = fig.add_subplot(2, 2, 4, facecolor="#111827")
+    # 1. Daily Focus Consistency (Left Chart)
+    ax1 = fig.add_subplot(1, 2, 1, facecolor="#131E33")
+    recent_daily = daily_work.tail(21)
+
+    ax1.plot(
+        recent_daily["date"],
+        recent_daily["work_hours"],
+        color="#38BDF8",
+        linewidth=2.2,
+        marker="o",
+        markersize=3.5,
+        label="Daily Focus",
+    )
+    ax1.fill_between(
+        recent_daily["date"],
+        recent_daily["work_hours"],
+        color="#38BDF8",
+        alpha=0.20,
+    )
+    ax1.axhline(
+        3.0,
+        color="#F59E0B",
+        linestyle="--",
+        linewidth=1.1,
+        alpha=0.75,
+        label="3h Daily Target",
+    )
+    ax1.set_title(
+        "Daily Consistency (Recent Weeks)",
+        fontsize=9.5,
+        fontweight="bold",
+        color="#E2E8F0",
+        pad=5,
+    )
+    ax1.set_ylabel("Hours", color="#94A3B8", fontsize=7.5)
+    ax1.grid(True, linestyle="--", alpha=0.18, color="#1E2B45")
+    ax1.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
+    ax1.tick_params(colors="#94A3B8", labelsize=7)
+    ax1.legend(loc="upper left", frameon=False, fontsize=7)
+
+    # 2. Cumulative Growth (Right Chart)
+    ax2 = fig.add_subplot(1, 2, 2, facecolor="#131E33")
     daily_work["cumulative_hours"] = daily_work["work_hours"].cumsum()
-    ax4.plot(daily_work["date"], daily_work["cumulative_hours"], color="#10B981", linewidth=1.8)
-    ax4.fill_between(daily_work["date"], daily_work["cumulative_hours"], color="#10B981", alpha=0.2)
-    ax4.set_title("Cumulative Focus Work Growth (Total Hours)", fontsize=10, fontweight="bold", color="#E5E7EB", pad=6)
-    ax4.set_ylabel("Total Hours", color="#9CA3AF", fontsize=8)
-    ax4.grid(True, linestyle="--", alpha=0.15)
-    ax4.xaxis.set_major_formatter(mdates.DateFormatter("%b %d"))
-    ax4.tick_params(colors="#9CA3AF", labelsize=7)
+
+    ax2.plot(
+        daily_work["date"],
+        daily_work["cumulative_hours"],
+        color="#10B981",
+        linewidth=2.4,
+        label="Total Compounded",
+    )
+    ax2.fill_between(
+        daily_work["date"],
+        daily_work["cumulative_hours"],
+        color="#10B981",
+        alpha=0.20,
+    )
+    ax2.set_title(
+        "Cumulative Deep Work Compounding",
+        fontsize=9.5,
+        fontweight="bold",
+        color="#E2E8F0",
+        pad=5,
+    )
+    ax2.set_ylabel("Total Hours", color="#94A3B8", fontsize=7.5)
+    ax2.grid(True, linestyle="--", alpha=0.18, color="#1E2B45")
+    ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
+    ax2.tick_params(colors="#94A3B8", labelsize=7)
+    ax2.legend(loc="upper left", frameon=False, fontsize=7)
 
     total_hours = df["work_hours"].sum()
     total_sessions = len(df)
-    top_day_hours = daily_work["work_hours"].max()
-    top_day_date = daily_work.loc[daily_work["work_hours"].idxmax()]["date"].strftime("%b %d, %Y")
-    avg_rating = df[df["rating"] > 0]["rating"].mean() if not df[df["rating"] > 0].empty else 3.0
+    stats_badge = f"TOTAL: {total_hours:.1f} hrs  •  SESSIONS: {total_sessions}  •  CONSISTENCY COMPOUNDS INTO MASTERY"
+    fig.text(
+        0.5,
+        0.02,
+        stats_badge,
+        ha="center",
+        fontsize=8,
+        fontweight="bold",
+        color="#38BDF8",
+        bbox=dict(boxstyle="round,pad=0.25", facecolor="#131E33", edgecolor="#1E2B45"),
+    )
 
-    stats_text = f"TOTAL: {total_hours:.1f} hrs  |  SESSIONS: {total_sessions}  |  TOP DAY: {top_day_hours:.1f} hrs ({top_day_date})  |  AVG RATING: {avg_rating:.1f}/5"
-    fig.text(0.5, 0.02, stats_text, ha="center", fontsize=9, fontweight="bold", color="#38BDF8", bbox=dict(boxstyle="round,pad=0.3", facecolor="#111827", edgecolor="#374151"))
-
-    plt.tight_layout(rect=[0, 0.04, 1, 0.94])
+    plt.tight_layout(rect=[0, 0.05, 1, 0.94])
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.savefig(buf, format="png", dpi=140, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
     img = Image.open(buf)
     img = img.resize((display_width, display_height), Image.Resampling.LANCZOS)
     return img
-
 
 
 def _load_summary_stats(current_work_seconds=0):
@@ -158,6 +351,7 @@ def _load_summary_stats(current_work_seconds=0):
 
     daily_work_seconds = {}
     end_reasons = {"timer": 0, "systemSleep": 0, "userBreakNow": 0, "other": 0}
+    today_types = {"study": 0, "work": 0, "exercise": 0, "other": 0}
 
     for ev in events:
         if not isinstance(ev, dict):
@@ -203,6 +397,16 @@ def _load_summary_stats(current_work_seconds=0):
             if rating and rating > 0:
                 today_ratings.append(rating)
 
+            stypes = ev.get("sessionTypes")
+            if not stypes:
+                raw_stype = str(ev.get("sessionType", ev.get("activityType", "work"))).lower()
+                stypes = [s.strip() for s in raw_stype.replace("+", ",").split(",") if s.strip()]
+            for st in stypes:
+                if st in today_types:
+                    today_types[st] += 1
+                else:
+                    today_types["other"] += 1
+
     if current_work_seconds > 0:
         today_sessions += 1
         total_sessions += 1
@@ -246,6 +450,8 @@ def _load_summary_stats(current_work_seconds=0):
     today_avg = f"{sum(today_ratings)/len(today_ratings):.1f}★" if today_ratings else "N/A"
     total_avg = f"{sum(total_ratings)/len(total_ratings):.1f}★" if total_ratings else "N/A"
 
+    today_mix_str = f"Today: 📚 {today_types['study']} Study  •  💼 {today_types['work']} Work  •  🏋️ {today_types['exercise']} Exercise"
+
     return {
         "today_sessions": today_sessions,
         "today_work": format_duration(today_work_sec),
@@ -258,6 +464,8 @@ def _load_summary_stats(current_work_seconds=0):
         "streak_days": f"{streak_count} Days 🔥",
         "timer_pct": f"{timer_pct}%",
         "sleep_pct": f"{sleep_pct}%",
+        "today_types": today_types,
+        "today_mix": today_mix_str,
     }
 
 
@@ -266,47 +474,39 @@ def _render_text_stats_card(container, stats_data=None):
     if stats_data is None:
         stats_data = _load_summary_stats()
 
-    stats_title_row = tk.Frame(container, bg="#111827")
-    stats_title_row.pack(fill="x", pady=(0, 6))
+    stats_title_row = tk.Frame(container, bg="#0F1626")
+    stats_title_row.pack(fill="x", pady=(0, 4))
 
     tk.Label(
         stats_title_row,
-        text="⚡ LIVE ANALYTICS DASHBOARD",
-        font=("Helvetica", 11, "bold"),
+        text="⚡ LIVE PRODUCTIVITY METRICS",
+        font=("Helvetica", 10, "bold"),
         fg="#F3F4F6",
-        bg="#111827",
+        bg="#0F1626",
     ).pack(side="left")
 
-    grid_frame = tk.Frame(container, bg="#111827")
+    grid_frame = tk.Frame(container, bg="#0F1626")
     grid_frame.pack(fill="x")
     grid_frame.columnconfigure(0, weight=1)
     grid_frame.columnconfigure(1, weight=1)
 
-    col1 = tk.Frame(grid_frame, bg="#1E293B", padx=12, pady=10, highlightbackground="#334155", highlightthickness=1)
-    col1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-    tk.Label(col1, text="📅 TODAY'S PERFORMANCE", font=("Helvetica", 10, "bold"), fg="#38BDF8", bg="#1E293B").pack(anchor="w", pady=(0, 4))
-    tk.Label(col1, text=f"Sessions Completed:  {stats_data['today_sessions']}", font=("Helvetica", 11, "bold"), fg="#F9FAFB", bg="#1E293B").pack(anchor="w", pady=1)
-    tk.Label(col1, text=f"Total Work Time:    {stats_data['today_work']}   |   Break: {stats_data['today_break']}", font=("Helvetica", 10), fg="#CBD5E1", bg="#1E293B").pack(anchor="w", pady=1)
+    col1 = tk.Frame(grid_frame, bg="#131E33", padx=10, pady=8, highlightbackground="#1E2B45", highlightthickness=1)
+    col1.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+    tk.Label(col1, text="📅 TODAY'S SPRINT", font=("Helvetica", 9, "bold"), fg="#38BDF8", bg="#131E33").pack(anchor="w", pady=(0, 2))
+    tk.Label(col1, text=f"Sessions: {stats_data['today_sessions']}  |  Work: {stats_data['today_work']}", font=("Helvetica", 10, "bold"), fg="#F9FAFB", bg="#131E33").pack(anchor="w")
 
-    col2 = tk.Frame(grid_frame, bg="#1E293B", padx=12, pady=10, highlightbackground="#334155", highlightthickness=1)
-    col2.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-    tk.Label(col2, text="🚀 ALL-TIME CAREER METRICS", font=("Helvetica", 10, "bold"), fg="#10B981", bg="#1E293B").pack(anchor="w", pady=(0, 4))
-    tk.Label(col2, text=f"Total Focus Time:   {stats_data['total_work']}  ({stats_data['total_sessions']} Sessions)", font=("Helvetica", 11, "bold"), fg="#F9FAFB", bg="#1E293B").pack(anchor="w", pady=1)
-    tk.Label(col2, text=f"Top Output Day:     {stats_data.get('top_day', 'N/A')}", font=("Helvetica", 10), fg="#F59E0B", bg="#1E293B").pack(anchor="w", pady=1)
-
+    col2 = tk.Frame(grid_frame, bg="#131E33", padx=10, pady=8, highlightbackground="#1E2B45", highlightthickness=1)
+    col2.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+    tk.Label(col2, text="🚀 ALL-TIME MOMENTUM", font=("Helvetica", 9, "bold"), fg="#10B981", bg="#131E33").pack(anchor="w", pady=(0, 2))
+    tk.Label(col2, text=f"Total: {stats_data['total_work']}  ({stats_data['total_sessions']} Sessions)", font=("Helvetica", 10, "bold"), fg="#F9FAFB", bg="#131E33").pack(anchor="w")
 
 
 def _warn_headless_once(error):
     global _HEADLESS_WARNING_EMITTED
     if _HEADLESS_WARNING_EMITTED:
         return
-
     _HEADLESS_WARNING_EMITTED = True
     print(f"GUI unavailable ({error}); running headless.")
-    if not os.environ.get("DISPLAY"):
-        print(
-            "Hint: set DISPLAY/XAUTHORITY for pomodoro.service (or import env in systemd --user)."
-        )
 
 
 def _candidate_display_envs():
@@ -387,7 +587,6 @@ def _play_countdown_alert(root):
         root.bell()
     except Exception:
         pass
-
     try:
         print("\a", end="", flush=True)
     except Exception:
@@ -402,8 +601,7 @@ def play_beep():
         "/usr/share/sounds/Oxygen-Sys-Special.ogg",
         "/usr/share/sounds/alsa/Front_Center.wav",
     ]
-    
-    # Try pw-play, paplay, aplay in background
+
     for player in ["pw-play", "paplay", "aplay"]:
         for sound_file in sound_files:
             if Path(sound_file).exists():
@@ -412,15 +610,13 @@ def play_beep():
                     return True
                 except Exception:
                     pass
-                    
-    # Fallback to spd-say
+
     try:
         subprocess.Popen(["spd-say", "-t", "female1", "beep"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return True
     except Exception:
         pass
 
-    # Fallback to tkinter bell/terminal beep in background thread
     def fallback_beeps():
         try:
             import tkinter as tk
@@ -461,10 +657,61 @@ def wait_for_display(initial_delay_seconds=60, retry_seconds=60):
             print("tkinter is unavailable; continuing in headless mode.")
             return False
         except Exception as error:
-            print(
-                f"Display unavailable ({error}); retrying in {retry_delay}s until display is ready."
-            )
+            print(f"Display unavailable ({error}); retrying in {retry_delay}s until display is ready.")
             time.sleep(retry_delay)
+
+
+def _show_one_minute_warning_toast(root):
+    """
+    Shows an executive floating heads-up toast for 3 seconds so the user can conclude tasks smoothly.
+    """
+    import tkinter as tk
+
+    try:
+        subprocess.Popen(
+            ["notify-send", "-u", "critical", "-t", "3500", "⏳ Pomodoro: Break in 1 Minute", "Wrap up and conclude your current thought before break starts."],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+    try:
+        toast = tk.Toplevel(root)
+        toast.overrideredirect(True)
+        toast.attributes("-topmost", True)
+        toast.configure(bg="#F59E0B")
+
+        card = tk.Frame(toast, bg="#0E1626", padx=22, pady=10)
+        card.pack(padx=2, pady=2, fill="both", expand=True)
+
+        tk.Label(
+            card,
+            text="⏳ BREAK IN 1 MINUTE",
+            font=("Helvetica", 13, "bold"),
+            fg="#F59E0B",
+            bg="#0E1626",
+        ).pack()
+
+        tk.Label(
+            card,
+            text="Conclude your current thought & save your work for the upcoming break.",
+            font=("Helvetica", 10),
+            fg="#CBD5E1",
+            bg="#0E1626",
+        ).pack(pady=(2, 0))
+
+        toast.update_idletasks()
+        w = toast.winfo_reqwidth()
+        h = toast.winfo_reqheight()
+        sw = toast.winfo_screenwidth()
+        x = max(0, (sw - w) // 2)
+        y = 35
+        toast.geometry(f"{w}x{h}+{x}+{y}")
+
+        toast.after(3000, lambda: toast.destroy())
+    except Exception as err:
+        print(f"1-min warning toast error: {err}")
 
 
 def run_work_session(work_seconds):
@@ -493,11 +740,10 @@ def run_work_session(work_seconds):
         }
     import tkinter as tk
 
-    # keep the work session out of the way: do not make it topmost or foreground
     root.attributes("-topmost", False)
     root.geometry("720x420")
     root.iconify()
-    root.configure(bg="#111827")
+    root.configure(bg="#070A11")
 
     started_at = time.time()
     last_tick_at = started_at
@@ -507,15 +753,15 @@ def run_work_session(work_seconds):
         "interaction_log": [],
         "suspend_detected": False,
         "active_elapsed_seconds": 0,
-        "beep_1min_played": False,
+        "warning_1min_shown": False,
     }
 
     title_label = tk.Label(
         root,
-        text="Work Session",
-        font=("Helvetica", 28, "bold"),
-        fg="#F9FAFB",
-        bg="#111827",
+        text="Deep Work Session",
+        font=("Helvetica", 26, "bold"),
+        fg="#F8FAFC",
+        bg="#070A11",
     )
     title_label.pack(pady=20)
 
@@ -523,17 +769,17 @@ def run_work_session(work_seconds):
         root,
         text=_format_timer(state["remaining"]),
         font=("Helvetica", 72, "bold"),
-        fg="#34D399",
-        bg="#111827",
+        fg="#38BDF8",
+        bg="#070A11",
     )
     timer_label.pack(pady=20)
 
     message_label = tk.Label(
         root,
-        text="Stay focused. You can jump to break when needed.",
-        font=("Helvetica", 14),
-        fg="#D1D5DB",
-        bg="#111827",
+        text="Laser Focus Mode • Minimize distractions & execute.",
+        font=("Helvetica", 13),
+        fg="#94A3B8",
+        bg="#070A11",
     )
     message_label.pack(pady=10)
 
@@ -541,30 +787,34 @@ def run_work_session(work_seconds):
         if state["go_break_now"]:
             return
         state["go_break_now"] = True
-        state["interaction_log"].append(
-            {"event": "goBreakNow", "at": int(time.time() - started_at)}
-        )
+        state["interaction_log"].append({"event": "goBreakNow", "at": int(time.time() - started_at)})
 
     action_button = tk.Button(
         root,
         text="Go On Break Now",
-        font=("Helvetica", 16, "bold"),
+        font=("Helvetica", 14, "bold"),
         bg="#F59E0B",
-        fg="#111827",
-        padx=16,
-        pady=10,
+        fg="#070A11",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=20,
+        pady=8,
         command=go_on_break_now,
     )
-    action_button.pack(pady=24)
+    action_button.pack(pady=20)
 
     while state["remaining"] > 0 and not state["go_break_now"]:
         timer_label.config(text=_format_timer(state["remaining"]))
         root.update()
+
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
-        elif state["remaining"] <= 60 and not state["beep_1min_played"]:
-            state["beep_1min_played"] = True
+        elif state["remaining"] <= 60 and not state["warning_1min_shown"]:
+            state["warning_1min_shown"] = True
             play_beep()
+            _show_one_minute_warning_toast(root)
+
         tick_before_sleep = time.time()
         time.sleep(1)
         tick_after_sleep = time.time()
@@ -582,156 +832,8 @@ def run_work_session(work_seconds):
     else:
         ended_by = "userBreakNow" if state["go_break_now"] else "timer"
 
-    session_note = ""
     if not state["suspend_detected"]:
-        try:
-            # Play chime alert so user is immediately notified
-            play_beep()
-
-            root.deiconify()
-            try:
-                root.attributes("-topmost", True)
-            except Exception:
-                pass
-            try:
-                root.lift()
-                root.focus_force()
-            except Exception:
-                pass
-
-            # Center window on screen
-            try:
-                sw = root.winfo_screenwidth()
-                sh = root.winfo_screenheight()
-                w, h = 680, 450
-                x = max(0, (sw - w) // 2)
-                y = max(0, (sh - h) // 2)
-                root.geometry(f"{w}x{h}+{x}+{y}")
-            except Exception:
-                root.geometry("680x450")
-
-            root.configure(bg="#0B0F19")
-
-            for widget in root.winfo_children():
-                widget.destroy()
-
-            note_frame = tk.Frame(root, bg="#0B0F19", padx=24, pady=20)
-            note_frame.pack(expand=True, fill="both")
-
-            tk.Label(
-                note_frame,
-                text="🎉 Work Session Complete!",
-                font=("Helvetica", 20, "bold"),
-                fg="#38BDF8",
-                bg="#0B0F19",
-            ).pack(pady=(0, 4))
-
-            tk.Label(
-                note_frame,
-                text="Write a quick note, reflection, or goal for next session:",
-                font=("Helvetica", 11),
-                fg="#D1D5DB",
-                bg="#0B0F19",
-            ).pack(pady=(0, 10))
-
-            note_text_box = tk.Text(
-                note_frame,
-                height=4,
-                width=50,
-                font=("Helvetica", 12),
-                bg="#1F2937",
-                fg="#F9FAFB",
-                insertbackground="#38BDF8",
-                highlightbackground="#374151",
-                highlightthickness=1,
-                padx=10,
-                pady=8,
-            )
-            note_text_box.pack(pady=(0, 10))
-            root.after(50, lambda: note_text_box.focus_set())
-            root.after(100, lambda: note_text_box.focus_force())
-
-            auto_lbl = tk.Label(
-                note_frame,
-                text="Auto-continuing in 10s... (Start typing to keep open)",
-                font=("Helvetica", 11, "bold"),
-                fg="#F59E0B",
-                bg="#0B0F19",
-            )
-            auto_lbl.pack(pady=(0, 12))
-
-            prompt_state = {
-                "timer_sec": 10,
-                "user_interacting": False,
-                "submitted": False,
-                "note_text": "",
-            }
-
-            def on_user_interaction(event=None):
-                if not prompt_state["user_interacting"]:
-                    prompt_state["user_interacting"] = True
-                    auto_lbl.config(
-                        text="✍️ Timer paused — take your time writing!",
-                        fg="#10B981",
-                    )
-
-            note_text_box.bind("<Key>", on_user_interaction)
-            note_text_box.bind("<Button-1>", on_user_interaction)
-            note_text_box.bind("<FocusIn>", on_user_interaction)
-
-            def submit_note(event=None):
-                prompt_state["note_text"] = note_text_box.get("1.0", "end-1c").strip()
-                prompt_state["submitted"] = True
-
-            note_text_box.bind("<Control-Return>", submit_note)
-
-            submit_btn = tk.Button(
-                note_frame,
-                text="Submit Note & Go To Break ➔",
-                font=("Helvetica", 12, "bold"),
-                bg="#10B981",
-                fg="#F9FAFB",
-                activebackground="#059669",
-                padx=18,
-                pady=6,
-                command=submit_note,
-            )
-            submit_btn.pack()
-
-            def _keep_on_top(event=None):
-                try:
-                    root.attributes("-topmost", True)
-                    root.lift()
-                except Exception:
-                    pass
-
-            root.bind("<FocusOut>", lambda e: root.after(100, _keep_on_top))
-
-            last_timer_tick = time.time()
-            last_topmost_check = time.time()
-            while not prompt_state["submitted"]:
-                now_tick = time.time()
-                if now_tick - last_topmost_check >= 0.5:
-                    last_topmost_check = now_tick
-                    _keep_on_top()
-
-                root.update()
-                time.sleep(0.05)
-
-                if not prompt_state["user_interacting"]:
-                    if now_tick - last_timer_tick >= 1.0:
-                        last_timer_tick = now_tick
-                        prompt_state["timer_sec"] -= 1
-                        auto_lbl.config(
-                            text=f"Auto-continuing in {max(0, prompt_state['timer_sec'])}s... (Start typing to keep open)"
-                        )
-                        if prompt_state["timer_sec"] <= 0:
-                            prompt_state["note_text"] = note_text_box.get("1.0", "end-1c").strip()
-                            prompt_state["submitted"] = True
-
-            session_note = prompt_state["note_text"]
-        except Exception as prompt_err:
-            print(f"Note prompt error: {prompt_err}")
+        play_beep()
 
     root.destroy()
 
@@ -739,7 +841,7 @@ def run_work_session(work_seconds):
         "plannedWorkSeconds": max(MIN_DURATION_SECONDS, int(work_seconds)),
         "actualWorkSeconds": max(1, actual_work_seconds),
         "workEndedBy": ended_by,
-        "sessionNote": session_note,
+        "sessionNote": "",
         "interactionLog": state["interaction_log"],
         "guiAvailable": True,
         "sessionInterruptedBySleep": state["suspend_detected"],
@@ -751,7 +853,18 @@ def run_break_session(
     default_next_work_seconds,
     default_next_break_seconds,
     stats=None,
+    is_walk_break=False,
+    session_number=1,
 ):
+    """
+    Modern Executive Break Dashboard:
+    - Sleek dark theme (#070A11) with elevated cards and glowing accents.
+    - 2 motivational charts only (Daily Consistency & Cumulative Compounding).
+    - Time-based routine checklist with active step highlighting.
+    - Multi-select session activity tags (📚 Study, 💼 Work, 🏋️ Exercise, 🎯 Other).
+    - Mandatory session time presets (25m, 30m, 40m, 50m, 60m).
+    - Mandatory 1-5 Star focus rating before resuming.
+    """
     try:
         root = _create_tk_root("Pomodoro Break Session")
     except ImportError:
@@ -764,6 +877,9 @@ def run_break_session(
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
             "productivityRating": None,
+            "sessionTypes": ["work"],
+            "sessionType": "work",
+            "routineSelected": "nothing",
             "exitApp": False,
             "sessionCanceled": True,
             "guiAvailable": False,
@@ -779,14 +895,18 @@ def run_break_session(
             "nextBreakSeconds": default_next_break_seconds,
             "interactionLog": [],
             "productivityRating": None,
+            "sessionTypes": ["work"],
+            "sessionType": "work",
+            "routineSelected": "nothing",
             "exitApp": False,
             "sessionCanceled": True,
             "guiAvailable": False,
         }
     import tkinter as tk
 
-    # make the break session full screen and remove window decorations
     root.update_idletasks()
+    sw = 1280
+    sh = 800
     try:
         sw = root.winfo_screenwidth()
         sh = root.winfo_screenheight()
@@ -797,24 +917,19 @@ def run_break_session(
         root.attributes("-fullscreen", True)
     except Exception:
         pass
-    # remove window manager decorations so user cannot minimize/close
     try:
         root.overrideredirect(True)
     except Exception:
         pass
-    root.configure(bg="#030712")
-    # Try to make the break window always on top and capture input so other
-    # applications cannot be brought forward while the break is active.
+    root.configure(bg="#070A11")
+
     try:
         root.attributes("-topmost", True)
-    except Exception:
-        pass
-    try:
         root.lift()
         root.focus_force()
     except Exception:
         pass
-    # Try to grab all input (best-effort; some window managers may prevent this)
+
     try:
         root.grab_set_global()
     except Exception:
@@ -822,18 +937,6 @@ def run_break_session(
             root.grab_set()
         except Exception:
             pass
-    # If focus is lost, immediately re-focus the break window
-    try:
-        def _on_focus_out(event):
-            try:
-                root.lift()
-                root.focus_force()
-            except Exception:
-                pass
-
-        root.bind("<FocusOut>", _on_focus_out)
-    except Exception:
-        pass
 
     started_at = time.time()
     last_tick_at = started_at
@@ -845,296 +948,879 @@ def run_break_session(
         "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
         "interaction_log": [],
         "productivity_rating": None,
+        "session_types": set(),
+        "session_time_selected": False,
         "suspend_detected": False,
         "active_elapsed_seconds": 0,
         "beep_20sec_played": False,
+        "session_note": "",
+        "routine_selected": None,
     }
+    ui_callbacks = {}
 
-    # Central container for all break UI elements
-    main_frame = tk.Frame(root, bg="#090D16")
-    main_frame.pack(expand=True, fill="both", padx=30, pady=20)
+    # Central layout container
+    main_frame = tk.Frame(root, bg="#070A11")
+    main_frame.pack(expand=True, fill="both", padx=36, pady=16)
 
-    # Top Header
-    header_frame = tk.Frame(main_frame, bg="#090D16")
-    header_frame.pack(pady=(10, 4))
+    # 1. TOP HEADER APP BAR (Extra Large & Bold)
+    app_bar = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=26, pady=14)
+    app_bar.pack(fill="x", pady=(0, 12))
 
+    if is_walk_break:
+        hdr_title = f"🚶 10-MINUTE WALK BREAK  •  SESSION #{session_number} COMPLETE"
+        hdr_color = "#34D399"
+        hdr_sub = "Physical Recovery Window • Stand up, put PC to sleep, and step away for a 10-minute walk outside or around your room."
+    else:
+        hdr_title = f"☕ RECHARGE & DEEP RESET  •  SESSION #{session_number} COMPLETE"
+        hdr_color = "#38BDF8"
+        hdr_sub = "Cognitive Integration Break • Rest your eyes, stretch your spine, hydrate, and reset mental clarity."
+
+    title_box = tk.Frame(app_bar, bg="#0F172A")
+    title_box.pack(side="left")
+
+    tk.Label(title_box, text=hdr_title, font=("Helvetica", 18, "bold"), fg=hdr_color, bg="#0F172A").pack(anchor="w")
+    tk.Label(title_box, text=hdr_sub, font=("Helvetica", 11), fg="#94A3B8", bg="#0F172A").pack(anchor="w", pady=(3, 0))
+
+    badge_box = tk.Frame(app_bar, bg="#0F172A")
+    badge_box.pack(side="right")
+
+    streak_text = stats.get("streak_days", "3 Days 🔥") if stats else "Focus Active"
     tk.Label(
-        header_frame,
-        text="☕ REST & RECHARGE",
-        font=("Helvetica", 24, "bold"),
-        fg="#38BDF8",
-        bg="#090D16",
-    ).pack()
-
-    tk.Label(
-        header_frame,
-        text="Enforced Focus Break • Stand up, stretch & take a deep breath",
-        font=("Helvetica", 11),
-        fg="#9CA3AF",
-        bg="#090D16",
-    ).pack(pady=(2, 0))
-
-    # Giant Countdown Timer
-    timer_label = tk.Label(
-        main_frame,
-        text=_format_timer(state["remaining"]),
-        font=("Helvetica", 84, "bold"),
-        fg="#60A5FA",
-        bg="#090D16",
-    )
-    timer_label.pack(pady=(4, 6))
-
-    # 💧 WELLNESS & PRODUCTIVITY BANNER (Hydration, Posture & Consistency)
-    wellness_frame = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#1E293B", highlightthickness=1, padx=14, pady=5)
-    wellness_frame.pack(pady=(0, 8), fill="x")
-
-    import random
-    water_cues = [
-        "💧 HYDRATION CHECK: Drink a glass of water now to maintain high mental stamina!",
-        "💧 RECHARGE: Take a sip of fresh water, relax your jaw, and let your eyes rest!",
-        "💧 DRINK WATER: Brain performance drops with dehydration — rehydrate now!",
-    ]
-    stretch_cues = [
-        "🧘 POSTURE: Roll your shoulders back and look 20 feet away for 20s.",
-        "🧘 PHYSICAL RESET: Stand up, stretch your arms overhead, and take 3 deep breaths.",
-        "🧘 EYE RELAXATION: Rest your focus on a distant object to reset eye muscles.",
-    ]
-    wellness_text = f"{random.choice(water_cues)}   •   {random.choice(stretch_cues)}"
-    tk.Label(
-        wellness_frame,
-        text=wellness_text,
-        font=("Helvetica", 10, "bold"),
-        fg="#38BDF8",
-        bg="#0F172A",
-    ).pack()
-
-    # 📊 FULL GRAPHICAL ANALYTICS DASHBOARD CONTAINER
-    stats_container = tk.Frame(
-        main_frame,
-        bg="#0B0F19",
-        highlightbackground="#1F2937",
+        badge_box,
+        text=f"🔥 STREAK: {streak_text}",
+        font=("Helvetica", 13, "bold"),
+        fg="#F59E0B",
+        bg="#1E293B",
+        padx=18,
+        pady=8,
+        highlightbackground="#F59E0B",
         highlightthickness=1,
-        padx=4,
-        pady=4,
+    ).pack(side="right", padx=(8, 0))
+
+    # 2. MOTIVATIONAL QUOTE CARD (Large, high-contrast, easy to read from across the room)
+    quote_card = tk.Frame(main_frame, bg="#111827", highlightbackground="#374151", highlightthickness=2, padx=24, pady=12)
+    quote_card.pack(fill="x", pady=(0, 12))
+
+    selected_quote = random.choice(MOTIVATIONAL_QUOTES)
+    tk.Label(
+        quote_card,
+        text=f'💡  "{selected_quote}"',
+        font=("Helvetica", 15, "bold"),
+        fg="#F9FAFB",
+        bg="#111827",
+    ).pack(pady=2)
+
+    # 3. HERO TIMER CARD (Massive digits and prominent status)
+    timer_hero = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=24, pady=10)
+    timer_hero.pack(fill="x", pady=(0, 12))
+
+    timer_color = "#34D399" if is_walk_break else "#38BDF8"
+    timer_label = tk.Label(
+        timer_hero,
+        text=_format_timer(state["remaining"]),
+        font=("Helvetica", 68, "bold"),
+        fg=timer_color,
+        bg="#0F172A",
     )
-    stats_container.pack(pady=(0, 10), fill="both", expand=True)
+    timer_label.pack()
 
-    sw = 1280
-    sh = 800
-    try:
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-    except Exception:
-        pass
+    timer_status_badge = tk.Label(
+        timer_hero,
+        text="🟢 BREAK TIMER RUNNING  •  STAND UP, WALK & RELAX YOUR EYES",
+        font=("Helvetica", 13, "bold"),
+        fg="#10B981",
+        bg="#0F172A",
+    )
+    timer_status_badge.pack(pady=(2, 4))
 
-    target_w = max(600, min(1020, sw - 140))
-    target_h = max(300, min(480, int(sh * 0.46)))
+    # If Walk Break: show sleep action button with pill styling
+    if is_walk_break:
+        walk_action_frame = tk.Frame(main_frame, bg="#064E3B", highlightbackground="#10B981", highlightthickness=2, padx=22, pady=10)
+        walk_action_frame.pack(fill="x", pady=(0, 12))
+
+        def trigger_sleep_walk():
+            state["interaction_log"].append({"event": "putPcToSleep", "at": int(time.time() - started_at)})
+            try:
+                subprocess.Popen(["systemctl", "suspend"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception:
+                try:
+                    subprocess.Popen(["loginctl", "lock-session"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
+
+        tk.Label(
+            walk_action_frame,
+            text="🌿 TIME FOR A WALK: Step away from your computer for active physical recovery!",
+            font=("Helvetica", 13, "bold"),
+            fg="#ECFDF5",
+            bg="#064E3B",
+        ).pack(side="left", padx=6)
+
+        tk.Button(
+            walk_action_frame,
+            text="💤 ( Put PC To Sleep & Walk )",
+            font=("Helvetica", 12, "bold"),
+            bg="#10B981",
+            fg="#020617",
+            activebackground="#34D399",
+            activeforeground="#020617",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=22,
+            pady=8,
+            command=trigger_sleep_walk,
+        ).pack(side="right", padx=6)
+
+    # 4. MIDDLE SPLIT: 2 Motivational Charts (Left) & Habit Routine Checklist (Right)
+    mid_container = tk.Frame(main_frame, bg="#070A11")
+    mid_container.pack(fill="both", expand=True, pady=(0, 12))
+    mid_container.columnconfigure(0, weight=6)
+    mid_container.columnconfigure(1, weight=5)
+
+    # 2-CHART CONTAINER (Left Column)
+    chart_col = tk.Frame(mid_container, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=6, pady=6)
+    chart_col.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+
+    target_chart_w = max(480, min(800, int(sw * 0.54)))
+    target_chart_h = max(180, min(270, int(sh * 0.28)))
 
     try:
         raw_dash_img = _generate_break_dashboard_image(
             current_work_seconds=0,
-            display_width=target_w,
-            display_height=target_h
+            display_width=target_chart_w,
+            display_height=target_chart_h,
         )
         if raw_dash_img:
-            state["dashboard_photo"] = ImageTk.PhotoImage(raw_dash_img)
-            dash_img_lbl = tk.Label(stats_container, image=state["dashboard_photo"], bg="#0B0F19")
-            dash_img_lbl.pack(expand=True)
+            state["dashboard_photo"] = ImageTk.PhotoImage(raw_dash_img, master=root)
+            chart_lbl = tk.Label(chart_col, image=state["dashboard_photo"], bg="#0F172A")
+            chart_lbl.pack(expand=True, fill="both")
         else:
-            _render_text_stats_card(stats_container, stats)
+            _render_text_stats_card(chart_col, stats)
     except Exception as img_err:
-        print(f"Fallback to text stats due to chart render error: {img_err}")
-        _render_text_stats_card(stats_container, stats)
+        print(f"Chart render error: {img_err}")
+        try:
+            if root.winfo_exists():
+                _render_text_stats_card(chart_col, stats)
+        except Exception:
+            pass
 
-    # 🎛️ CONTROLS CONTAINER (Break duration & Next Work duration)
-    controls_frame = tk.Frame(main_frame, bg="#111827", highlightbackground="#1F2937", highlightthickness=1, padx=16, pady=10)
-    controls_frame.pack(fill="x", pady=(0, 12))
+    # TIME-BASED ROUTINE CHECKLIST (Right Column)
+    routine_col = tk.Frame(mid_container, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=20, pady=12)
+    routine_col.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-    ctrl_grid = tk.Frame(controls_frame, bg="#111827")
-    ctrl_grid.pack(expand=True)
+    time_slot = _get_time_slot()
+    slot_info = DEFAULT_ROUTINE_SCHEDULE.get(time_slot, DEFAULT_ROUTINE_SCHEDULE["morning"])
 
-    # Break duration row
-    tk.Label(ctrl_grid, text="Break Length:", font=("Helvetica", 11, "bold"), fg="#93C5FD", bg="#111827").grid(row=0, column=0, padx=8, pady=4, sticky="e")
-    
-    def update_break_duration(delta_seconds):
-        state["remaining"] = max(MIN_DURATION_SECONDS, state["remaining"] + delta_seconds)
-        if state["remaining"] > 20:
-            state["beep_20sec_played"] = False
-        break_length_label.config(text=_format_timer(state["remaining"]))
-        state["interaction_log"].append(
-            {
-                "event": "adjustCurrentBreak",
-                "deltaSeconds": delta_seconds,
-                "at": int(time.time() - started_at),
-                "newCurrentBreakSeconds": state["remaining"],
-            }
+    r_hdr = tk.Frame(routine_col, bg="#0F172A")
+    r_hdr.pack(fill="x", pady=(0, 6))
+
+    tk.Label(
+        r_hdr,
+        text=slot_info["name"],
+        font=("Helvetica", 12, "bold"),
+        fg="#38BDF8",
+        bg="#0F172A",
+    ).pack(side="left")
+
+    def select_routine_nothing():
+        state["routine_selected"] = "nothing"
+        nothing_btn.config(
+            text="( ✓ Nothing Selected )",
+            bg="#475569",
+            fg="#F8FAFC",
+            font=("Helvetica", 10, "bold"),
         )
+        status_lbl.config(text="✓ Routine: Nothing / Skipped for this break", fg="#94A3B8")
+        state["interaction_log"].append({"event": "selectRoutineNothing", "at": int(time.time() - started_at)})
+        update_resume_state()
 
-    tk.Button(ctrl_grid, text="-1 min", font=("Helvetica", 10, "bold"), bg="#DC2626", fg="#F9FAFB", activebackground="#EF4444", padx=8, pady=2, command=lambda: update_break_duration(-60)).grid(row=0, column=1, padx=4)
-    break_length_label = tk.Label(ctrl_grid, text=_format_timer(state["remaining"]), font=("Helvetica", 14, "bold"), fg="#60A5FA", bg="#111827", width=6)
-    break_length_label.grid(row=0, column=2, padx=4)
-    tk.Button(ctrl_grid, text="+1 min", font=("Helvetica", 10, "bold"), bg="#059669", fg="#F9FAFB", activebackground="#10B981", padx=8, pady=2, command=lambda: update_break_duration(60)).grid(row=0, column=3, padx=4)
+    nothing_btn = tk.Button(
+        r_hdr,
+        text="( ❌ Nothing )",
+        font=("Helvetica", 10, "bold"),
+        bg="#1E293B",
+        fg="#CBD5E1",
+        activebackground="#475569",
+        activeforeground="#FFFFFF",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=14,
+        pady=3,
+        command=select_routine_nothing,
+    )
+    nothing_btn.pack(side="right")
 
-    # Divider
-    tk.Label(ctrl_grid, text="   |   ", font=("Helvetica", 12), fg="#475569", bg="#111827").grid(row=0, column=4, padx=6)
-
-    # Next Work row
-    tk.Label(ctrl_grid, text="Next Work:", font=("Helvetica", 11, "bold"), fg="#FDE68A", bg="#111827").grid(row=0, column=5, padx=8, pady=4, sticky="e")
-
-    def update_next_work(delta_seconds):
-        state["next_work"] = max(MIN_DURATION_SECONDS, state["next_work"] + delta_seconds)
-        next_work_label.config(text=_format_timer(state["next_work"]))
-        state["interaction_log"].append(
-            {
-                "event": "adjustNextWork",
-                "deltaSeconds": delta_seconds,
-                "at": int(time.time() - started_at),
-                "nextWorkSeconds": state["next_work"],
-            }
-        )
-
-    tk.Button(ctrl_grid, text="-5 min", font=("Helvetica", 10, "bold"), bg="#B91C1C", fg="#F9FAFB", activebackground="#DC2626", padx=8, pady=2, command=lambda: update_next_work(-300)).grid(row=0, column=6, padx=4)
-    next_work_label = tk.Label(ctrl_grid, text=_format_timer(state["next_work"]), font=("Helvetica", 14, "bold"), fg="#FBBF24", bg="#111827", width=6)
-    next_work_label.grid(row=0, column=7, padx=4)
-    tk.Button(ctrl_grid, text="+5 min", font=("Helvetica", 10, "bold"), bg="#047857", fg="#F9FAFB", activebackground="#059669", padx=8, pady=2, command=lambda: update_next_work(300)).grid(row=0, column=8, padx=4)
-
-    # ⭐ PRODUCTIVITY RATING SECTION (MANDATORY)
-    rating_frame = tk.Frame(main_frame, bg="#111827", highlightbackground="#1F2937", highlightthickness=1, padx=16, pady=10)
-    rating_frame.pack(fill="x", pady=(0, 14))
-
-    rating_top_row = tk.Frame(rating_frame, bg="#111827")
-    rating_top_row.pack(fill="x", pady=(0, 6))
-
-    tk.Label(rating_top_row, text="⭐ RATE THIS SESSION'S FOCUS LEVEL", font=("Helvetica", 10, "bold"), fg="#F3F4F6", bg="#111827").pack(side="left")
-    rating_status_lbl = tk.Label(
-        rating_top_row,
-        text="⚠️ MANDATORY: Select 1-5 ★ rating to enable Resume/Exit",
+    status_lbl = tk.Label(
+        routine_col,
+        text="⚠️ MANDATORY: Complete any 1 task or click '( ❌ Nothing )'",
         font=("Helvetica", 10, "bold"),
         fg="#EF4444",
-        bg="#111827",
+        bg="#0F172A",
+        anchor="w",
+    )
+    status_lbl.pack(fill="x", pady=(0, 6))
+
+    completed_records = _load_routine_completions()
+    completed_task_ids = {c.get("taskId") for c in completed_records}
+    routine_tasks = list(slot_info["tasks"])
+
+    tasks_box = tk.Frame(routine_col, bg="#0F172A")
+    tasks_box.pack(fill="both", expand=True)
+
+    def refresh_task_list_ui():
+        for widget in tasks_box.winfo_children():
+            widget.destroy()
+
+        active_task = None
+        for t in routine_tasks:
+            if t["id"] not in completed_task_ids:
+                active_task = t
+                break
+
+        if state.get("routine_selected") == "nothing":
+            status_lbl.config(text="✓ Routine: Nothing / Skipped for this break", fg="#94A3B8")
+        elif state.get("routine_selected"):
+            status_lbl.config(text="✓ Routine task completed & confirmed!", fg="#10B981")
+        elif active_task is None:
+            state["routine_selected"] = "all_completed"
+            status_lbl.config(
+                text="🎉 All routine tasks for this period completed & logged!",
+                fg="#10B981",
+            )
+        else:
+            status_lbl.config(
+                text=f"👉 Active Target: {active_task['title']}  •  (Or click 'Nothing')",
+                fg="#FBBF24",
+            )
+
+        for t in routine_tasks:
+            is_done = t["id"] in completed_task_ids
+            is_active = (active_task and active_task["id"] == t["id"])
+
+            row_bg = "#1E293B" if is_active else "#0F172A"
+            row = tk.Frame(
+                tasks_box,
+                bg=row_bg,
+                padx=10,
+                pady=6,
+                highlightbackground="#38BDF8" if is_active else "#1E293B",
+                highlightthickness=1,
+            )
+            row.pack(fill="x", pady=2.5)
+
+            check_icon = "✓" if is_done else "○"
+            check_fg = "#10B981" if is_done else "#64748B"
+            tk.Label(
+                row,
+                text=f"[{check_icon}]",
+                font=("Helvetica", 12, "bold"),
+                fg=check_fg,
+                bg=row_bg,
+                width=3,
+            ).pack(side="left")
+
+            title_fg = "#64748B" if is_done else ("#F8FAFC" if is_active else "#CBD5E1")
+            title_font = ("Helvetica", 11, "bold") if is_active else ("Helvetica", 11)
+            tk.Label(
+                row,
+                text=t["title"],
+                font=title_font,
+                fg=title_fg,
+                bg=row_bg,
+            ).pack(side="left", padx=8)
+
+            def mark_task_ok(tid=t["id"], title=t["title"]):
+                completed_task_ids.add(tid)
+                _save_routine_completion(tid, title)
+                play_beep()
+                state["routine_selected"] = tid
+                if nothing_btn:
+                    nothing_btn.config(text="( ❌ Nothing )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 10))
+                state["interaction_log"].append({"event": "completeRoutineTask", "taskId": tid, "at": int(time.time() - started_at)})
+                refresh_task_list_ui()
+                update_resume_state()
+
+            if not is_done:
+                btn_bg = "#10B981" if is_active else "#1E293B"
+                btn_fg = "#020617" if is_active else "#CBD5E1"
+                tk.Button(
+                    row,
+                    text="( ✓ Done )",
+                    font=("Helvetica", 10, "bold"),
+                    bg=btn_bg,
+                    fg=btn_fg,
+                    activebackground="#34D399",
+                    activeforeground="#020617",
+                    relief="flat",
+                    bd=0,
+                    cursor="hand2",
+                    padx=14,
+                    pady=4,
+                    command=mark_task_ok,
+                ).pack(side="right")
+            else:
+                tk.Label(
+                    row,
+                    text="Completed ✓",
+                    font=("Helvetica", 10, "bold"),
+                    fg="#10B981",
+                    bg=row_bg,
+                ).pack(side="right", padx=10)
+
+    refresh_task_list_ui()
+
+    quick_add_frame = tk.Frame(routine_col, bg="#0F172A")
+    quick_add_frame.pack(fill="x", pady=(8, 0))
+
+    def drink_water_quick():
+        wid = f"water_glass_{int(time.time())}"
+        wtitle = "💧 Drank a glass of fresh water"
+        completed_task_ids.add(wid)
+        _save_routine_completion(wid, wtitle)
+        play_beep()
+        state["routine_selected"] = wid
+        if nothing_btn:
+            nothing_btn.config(text="( ❌ Nothing )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 10))
+        routine_tasks.append({"id": wid, "title": wtitle, "desc": "Hydration recorded."})
+        refresh_task_list_ui()
+        update_resume_state()
+
+    def flash_routine_warning():
+        routine_col.config(highlightbackground="#DC2626")
+        status_lbl.config(text="⚠️ MANDATORY: Check a task as Done or click '( ❌ Nothing )'!", fg="#EF4444")
+        if nothing_btn:
+            nothing_btn.config(bg="#DC2626", fg="#FFFFFF")
+
+        def reset_routine_ui():
+            routine_col.config(highlightbackground="#334155")
+            if state.get("routine_selected") == "nothing":
+                if nothing_btn:
+                    nothing_btn.config(text="( ✓ Nothing Selected )", bg="#475569", fg="#F8FAFC", font=("Helvetica", 10, "bold"))
+                status_lbl.config(text="✓ Routine: Nothing / Skipped for this break", fg="#94A3B8")
+            elif state.get("routine_selected"):
+                if nothing_btn:
+                    nothing_btn.config(text="( ❌ Nothing )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 10))
+                status_lbl.config(text="✓ Routine task completed & confirmed!", fg="#10B981")
+            else:
+                if nothing_btn:
+                    nothing_btn.config(text="( ❌ Nothing )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 10))
+                refresh_task_list_ui()
+
+        root.after(700, reset_routine_ui)
+
+    tk.Button(
+        quick_add_frame,
+        text="( 💧 Drink Water +1 Cup )",
+        font=("Helvetica", 10, "bold"),
+        bg="#0284C7",
+        fg="#F0F9FF",
+        activebackground="#38BDF8",
+        activeforeground="#020617",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=14,
+        pady=5,
+        command=drink_water_quick,
+    ).pack(side="left")
+
+    custom_entry = tk.Entry(
+        quick_add_frame,
+        font=("Helvetica", 10),
+        bg="#1E293B",
+        fg="#F8FAFC",
+        insertbackground="#38BDF8",
+        relief="flat",
+        highlightbackground="#334155",
+        highlightthickness=1,
+        width=20,
+    )
+    custom_entry.pack(side="left", padx=8, ipady=4)
+    custom_entry.insert(0, "Add checklist task...")
+
+    def on_entry_focus(e):
+        if custom_entry.get() == "Add checklist task...":
+            custom_entry.delete(0, "end")
+
+    custom_entry.bind("<FocusIn>", on_entry_focus)
+
+    def add_custom_task(event=None):
+        txt = custom_entry.get().strip()
+        if txt and txt != "Add checklist task...":
+            cid = f"custom_{int(time.time())}"
+            routine_tasks.append({"id": cid, "title": f"📌 {txt}", "desc": "Custom user task."})
+            custom_entry.delete(0, "end")
+            refresh_task_list_ui()
+
+    custom_entry.bind("<Return>", add_custom_task)
+    tk.Button(
+        quick_add_frame,
+        text="( + Add )",
+        font=("Helvetica", 10, "bold"),
+        bg="#334155",
+        fg="#F8FAFC",
+        activebackground="#475569",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=12,
+        pady=5,
+        command=add_custom_task,
+    ).pack(side="left")
+
+    # 5. UNIFIED LAUNCHPAD CARD
+    launchpad_card = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=24, pady=14)
+    launchpad_card.pack(fill="x", pady=(0, 12))
+
+    lp_hdr = tk.Frame(launchpad_card, bg="#0F172A")
+    lp_hdr.pack(fill="x", pady=(0, 10))
+
+    tk.Label(
+        lp_hdr,
+        text="🚀 NEXT SPRINT CONFIGURATION",
+        font=("Helvetica", 13, "bold"),
+        fg="#F8FAFC",
+        bg="#0F172A",
+    ).pack(side="left")
+
+    today_mix_text = stats.get("today_mix", "") if stats else ""
+    if not today_mix_text:
+        today_mix_text = "Track: 📚 Study • 💼 Work • 🏋️ Exercise"
+    tk.Label(
+        lp_hdr,
+        text=today_mix_text,
+        font=("Helvetica", 11, "bold"),
+        fg="#38BDF8",
+        bg="#0F172A",
+    ).pack(side="right")
+
+    def update_resume_state():
+        ready = bool(
+            state["session_types"]
+            and state["productivity_rating"]
+            and state.get("routine_selected")
+        )
+        if ready:
+            resume_btn.config(
+                bg="#10B981",
+                fg="#020617",
+                text="( ⚡ RESUME WORK NOW • READY ✓ )",
+            )
+        else:
+            resume_btn.config(
+                bg="#065F46",
+                fg="#A7F3D0",
+                text="( ⚡ RESUME WORK NOW )",
+            )
+
+    # SECTION 1: SPRINT DURATION (OPTIONAL / CUSTOMIZABLE PRESETS)
+    row1 = tk.Frame(launchpad_card, bg="#0F172A")
+    row1.pack(fill="x", pady=6)
+
+    tk.Label(row1, text="⏱️ SPRINT DURATION:", font=("Helvetica", 12, "bold"), fg="#94A3B8", bg="#0F172A", width=20, anchor="w").pack(side="left")
+
+    current_mins = int(round(state["next_work"] / 60))
+    time_status_lbl = tk.Label(
+        row1,
+        text=f"Current: {current_mins}m (Optional Preset)",
+        font=("Helvetica", 11, "bold"),
+        fg="#38BDF8",
+        bg="#0F172A",
+        width=34,
+        anchor="e",
+    )
+    time_status_lbl.pack(side="right")
+
+    time_btn_frame = tk.Frame(row1, bg="#0F172A")
+    time_btn_frame.pack(side="left", padx=4)
+
+    time_presets = [25, 30, 40, 50, 60]
+    time_preset_buttons = {}
+
+    def set_session_time(minutes):
+        state["next_work"] = minutes * 60
+        state["session_time_selected"] = True
+        next_work_label.config(text=_format_timer(state["next_work"]))
+        time_status_lbl.config(text=f"Duration: {minutes}m (Active ✓)", fg="#10B981")
+        for m, btn in time_preset_buttons.items():
+            if m == minutes:
+                btn.config(text=f"( ✓ {m}m )", bg="#06B6D4", fg="#020617", font=("Helvetica", 11, "bold"))
+            else:
+                btn.config(text=f"( {m}m )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 11))
+        state["interaction_log"].append({
+            "event": "selectNextWorkPreset",
+            "minutes": minutes,
+            "at": int(time.time() - started_at),
+        })
+        update_resume_state()
+
+    for m in time_presets:
+        is_default = (m == current_mins)
+        btn_txt = f"( ✓ {m}m )" if is_default else f"( {m}m )"
+        btn_bg = "#06B6D4" if is_default else "#1E293B"
+        btn_fg = "#020617" if is_default else "#CBD5E1"
+        btn = tk.Button(
+            time_btn_frame,
+            text=btn_txt,
+            font=("Helvetica", 11, "bold" if is_default else "normal"),
+            bg=btn_bg,
+            fg=btn_fg,
+            activebackground="#06B6D4",
+            activeforeground="#020617",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=16,
+            pady=5,
+            command=lambda mins=m: set_session_time(mins),
+        )
+        btn.pack(side="left", padx=4)
+        time_preset_buttons[m] = btn
+
+    tk.Label(time_btn_frame, text=" | ", font=("Helvetica", 11), fg="#475569", bg="#0F172A").pack(side="left", padx=4)
+
+    def adjust_next_work(delta_seconds):
+        state["next_work"] = max(MIN_DURATION_SECONDS, state["next_work"] + delta_seconds)
+        state["session_time_selected"] = True
+        next_work_label.config(text=_format_timer(state["next_work"]))
+        mins = int(round(state["next_work"] / 60))
+        time_status_lbl.config(text=f"Duration: {_format_timer(state['next_work'])} (Custom ✓)", fg="#10B981")
+        for m, btn in time_preset_buttons.items():
+            if m == mins:
+                btn.config(text=f"( ✓ {m}m )", bg="#06B6D4", fg="#020617", font=("Helvetica", 11, "bold"))
+            else:
+                btn.config(text=f"( {m}m )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 11))
+        state["interaction_log"].append({
+            "event": "adjustNextWork",
+            "deltaSeconds": delta_seconds,
+            "at": int(time.time() - started_at),
+            "nextWorkSeconds": state["next_work"],
+        })
+        update_resume_state()
+
+    tk.Button(
+        time_btn_frame,
+        text="( -5m )",
+        font=("Helvetica", 11, "bold"),
+        bg="#7F1D1D",
+        fg="#FCA5A5",
+        activebackground="#991B1B",
+        activeforeground="#FFFFFF",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=10,
+        pady=5,
+        command=lambda: adjust_next_work(-300),
+    ).pack(side="left", padx=2)
+
+    next_work_label = tk.Label(
+        time_btn_frame,
+        text=_format_timer(state["next_work"]),
+        font=("Helvetica", 12, "bold"),
+        fg="#FBBF24",
+        bg="#0F172A",
+        width=7,
+    )
+    next_work_label.pack(side="left", padx=3)
+
+    tk.Button(
+        time_btn_frame,
+        text="( +5m )",
+        font=("Helvetica", 11, "bold"),
+        bg="#064E3B",
+        fg="#6EE7B7",
+        activebackground="#047857",
+        activeforeground="#FFFFFF",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=10,
+        pady=5,
+        command=lambda: adjust_next_work(300),
+    ).pack(side="left", padx=2)
+
+    # SECTION 2: MULTI-SELECT SESSION WORK TYPES (MANDATORY)
+    row2 = tk.Frame(launchpad_card, bg="#0F172A")
+    row2.pack(fill="x", pady=6)
+
+    tk.Label(row2, text="🏷️ WORK TYPES:", font=("Helvetica", 12, "bold"), fg="#94A3B8", bg="#0F172A", width=20, anchor="w").pack(side="left")
+
+    act_status_lbl = tk.Label(
+        row2,
+        text="⚠️ MANDATORY: Select 1 or more",
+        font=("Helvetica", 11, "bold"),
+        fg="#EF4444",
+        bg="#0F172A",
+        width=34,
+        anchor="e",
+    )
+    act_status_lbl.pack(side="right")
+
+    act_btn_frame = tk.Frame(row2, bg="#0F172A")
+    act_btn_frame.pack(side="left", padx=4)
+
+    activity_options = [
+        ("study", "📚 Study", "#2563EB"),
+        ("work", "💼 Work", "#D97706"),
+        ("exercise", "🏋️ Exercise", "#059669"),
+        ("reading", "📖 Reading", "#0284C7"),
+        ("other", "🎯 Other", "#7C3AED"),
+    ]
+    activity_buttons = {}
+
+    def update_activity_ui():
+        for opt_key, opt_label, opt_glow in activity_options:
+            btn = activity_buttons[opt_key]
+            if opt_key in state["session_types"]:
+                btn.config(
+                    text=f"( ✓ {opt_label} )",
+                    bg=opt_glow,
+                    fg="#FFFFFF",
+                    font=("Helvetica", 11, "bold"),
+                )
+            else:
+                btn.config(
+                    text=f"( {opt_label} )",
+                    bg="#1E293B",
+                    fg="#CBD5E1",
+                    font=("Helvetica", 11),
+                )
+
+        if state["session_types"]:
+            selected_names = [opt_label for opt_key, opt_label, _ in activity_options if opt_key in state["session_types"]]
+            act_status_lbl.config(
+                text=f"{' + '.join(selected_names)} (✓)",
+                fg="#10B981",
+            )
+        else:
+            act_status_lbl.config(
+                text="⚠️ MANDATORY: Select 1 or more",
+                fg="#EF4444",
+            )
+        update_resume_state()
+
+    def toggle_activity(atype):
+        if atype in state["session_types"]:
+            state["session_types"].remove(atype)
+        else:
+            state["session_types"].add(atype)
+        state["interaction_log"].append({
+            "event": "toggleSessionType",
+            "type": atype,
+            "selected": list(state["session_types"]),
+            "at": int(time.time() - started_at),
+        })
+        update_activity_ui()
+
+    for opt_key, opt_label, opt_glow in activity_options:
+        btn = tk.Button(
+            act_btn_frame,
+            text=f"( {opt_label} )",
+            font=("Helvetica", 11),
+            bg="#1E293B",
+            fg="#CBD5E1",
+            activebackground=opt_glow,
+            activeforeground="#FFFFFF",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=16,
+            pady=5,
+            command=lambda k=opt_key: toggle_activity(k),
+        )
+        btn.pack(side="left", padx=4)
+        activity_buttons[opt_key] = btn
+
+    def flash_activity_warning():
+        act_status_lbl.config(text="⚠️ MANDATORY: Select at least 1 work type!", fg="#EF4444")
+        for btn in activity_buttons.values():
+            btn.config(bg="#DC2626", fg="#FFFFFF")
+        root.after(700, update_activity_ui)
+
+    # SECTION 3: FOCUS QUALITY RATING (MANDATORY)
+    row3 = tk.Frame(launchpad_card, bg="#0F172A")
+    row3.pack(fill="x", pady=6)
+
+    tk.Label(row3, text="⭐ FOCUS RATING:", font=("Helvetica", 12, "bold"), fg="#94A3B8", bg="#0F172A", width=20, anchor="w").pack(side="left")
+
+    rating_status_lbl = tk.Label(
+        row3,
+        text="⚠️ MANDATORY: Select 1-5 ★",
+        font=("Helvetica", 11, "bold"),
+        fg="#EF4444",
+        bg="#0F172A",
+        width=34,
+        anchor="e",
     )
     rating_status_lbl.pack(side="right")
 
-    star_btn_frame = tk.Frame(rating_frame, bg="#111827")
-    star_btn_frame.pack(expand=True)
+    star_btn_frame = tk.Frame(row3, bg="#0F172A")
+    star_btn_frame.pack(side="left", padx=4)
 
-    rating_labels_map = {1: "1 ★ Low", 2: "2 ★ Fair", 3: "3 ★ Good", 4: "4 ★ Great", 5: "5 ★ Peak Focus"}
+    rating_labels_map = {1: "1★ Low", 2: "2★ Fair", 3: "3★ Good", 4: "4★ Great", 5: "5★ Peak"}
     star_buttons = {}
 
     def select_rating(val):
         state["productivity_rating"] = val
-        state["interaction_log"].append(
-            {"event": "setProductivity", "rating": val, "at": int(time.time() - started_at)}
-        )
-        rating_status_lbl.config(text=f"Rating: {rating_labels_map[val]} (Unlocked ✓)", fg="#10B981")
+        state["interaction_log"].append({"event": "setProductivity", "rating": val, "at": int(time.time() - started_at)})
+        rating_status_lbl.config(text=f"Rating: {rating_labels_map[val]} (Confirmed ✓)", fg="#10B981")
         for r, btn in star_buttons.items():
             if r == val:
-                btn.config(bg="#F59E0B", fg="#090D16", font=("Helvetica", 10, "bold"))
+                btn.config(text=f"( ✓ {r}★ )", bg="#F59E0B", fg="#020617", font=("Helvetica", 11, "bold"))
             else:
-                btn.config(bg="#1E293B", fg="#94A3B8", font=("Helvetica", 10))
+                btn.config(text=f"( {r}★ )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 11))
+        update_resume_state()
 
     for r in range(1, 6):
         btn = tk.Button(
             star_btn_frame,
-            text=f"{r} ★",
-            font=("Helvetica", 10),
+            text=f"( {r}★ )",
+            font=("Helvetica", 11),
             bg="#1E293B",
-            fg="#94A3B8",
+            fg="#CBD5E1",
+            activebackground="#F59E0B",
+            activeforeground="#020617",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
             padx=16,
-            pady=4,
+            pady=5,
             command=lambda val=r: select_rating(val),
         )
         btn.pack(side="left", padx=4)
         star_buttons[r] = btn
 
-    state["productivity_rating"] = None
-
     def flash_star_warning():
-        rating_status_lbl.config(
-            text="⚠️ MANDATORY RATING REQUIRED! Click a 1-5 ★ rating to proceed!",
-            fg="#EF4444",
-        )
+        rating_status_lbl.config(text="⚠️ MANDATORY: Select a 1-5 ★ rating to continue!", fg="#EF4444")
         for btn in star_buttons.values():
             btn.config(bg="#DC2626", fg="#FFFFFF")
+
         def reset_stars():
             for r, btn in star_buttons.items():
                 if state["productivity_rating"] == r:
-                    btn.config(bg="#F59E0B", fg="#090D16")
+                    btn.config(text=f"( ✓ {r}★ )", bg="#F59E0B", fg="#020617", font=("Helvetica", 11, "bold"))
                 else:
-                    btn.config(bg="#1E293B", fg="#94A3B8")
+                    btn.config(text=f"( {r}★ )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 11))
+
         root.after(700, reset_stars)
 
-    # 🚀 ACTION FOOTER BUTTONS
-    footer_frame = tk.Frame(main_frame, bg="#090D16")
-    footer_frame.pack(pady=4)
-
-    def end_break_now():
+    def validate_mandatory_inputs():
+        is_valid = True
+        if not state["session_types"]:
+            flash_activity_warning()
+            is_valid = False
         if state["productivity_rating"] is None:
             flash_star_warning()
+            is_valid = False
+        if not state.get("routine_selected"):
+            flash_routine_warning()
+            is_valid = False
+        return is_valid
+
+    # 6. ACTION FOOTER BAR (Prominent, High-Visibility Rounded Action Buttons)
+    footer_frame = tk.Frame(main_frame, bg="#070A11")
+    footer_frame.pack(fill="x", pady=(10, 0))
+
+    footer_center = tk.Frame(footer_frame, bg="#070A11")
+    footer_center.pack(anchor="center")
+
+    def end_break_now():
+        if not validate_mandatory_inputs():
             return
         if state["end_break_now"]:
             return
         state["end_break_now"] = True
-        state["interaction_log"].append(
-            {"event": "endBreakNow", "at": int(time.time() - started_at)}
-        )
+        state["interaction_log"].append({"event": "endBreakNow", "at": int(time.time() - started_at)})
 
     def exit_app():
-        if state["productivity_rating"] is None:
-            flash_star_warning()
+        if not validate_mandatory_inputs():
             return
         if state["exit_app"]:
             return
         state["exit_app"] = True
-        state["interaction_log"].append(
-            {"event": "exitApp", "at": int(time.time() - started_at)}
-        )
+        state["interaction_log"].append({"event": "exitApp", "at": int(time.time() - started_at)})
 
     resume_btn = tk.Button(
-        footer_frame,
-        text="⚡ RESUME WORK NOW",
+        footer_center,
+        text="( ⚡ RESUME WORK NOW )",
         font=("Helvetica", 14, "bold"),
-        bg="#F59E0B",
-        fg="#090D16",
-        activebackground="#FBBF24",
-        activeforeground="#090D16",
-        padx=28,
-        pady=8,
+        bg="#065F46",
+        fg="#A7F3D0",
+        activebackground="#34D399",
+        activeforeground="#020617",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=38,
+        pady=12,
         command=end_break_now,
     )
-    resume_btn.pack(side="left", padx=10)
+    resume_btn.pack(side="left", padx=12)
 
     exit_btn = tk.Button(
-        footer_frame,
-        text="🔴 EXIT APP",
-        font=("Helvetica", 11, "bold"),
-        bg="#991B1B",
-        fg="#F9FAFB",
-        activebackground="#DC2626",
-        padx=16,
-        pady=8,
+        footer_center,
+        text="( 🔴 EXIT APP )",
+        font=("Helvetica", 12, "bold"),
+        bg="#1E293B",
+        fg="#F87171",
+        activebackground="#7F1D1D",
+        activeforeground="#FFFFFF",
+        relief="flat",
+        bd=0,
+        cursor="hand2",
+        padx=24,
+        pady=12,
         command=exit_app,
     )
-    exit_btn.pack(side="left", padx=10)
+    exit_btn.pack(side="left", padx=12)
 
-    while (state["remaining"] > 0 or state["productivity_rating"] is None) and not state["end_break_now"] and not state["exit_app"]:
-        if state["remaining"] > 0:
-            timer_label.config(text=_format_timer(state["remaining"]))
-        else:
-            timer_label.config(text="00:00 (Select Rating)")
-            rating_status_lbl.config(
-                text="⚠️ BREAK COMPLETE! Select a 1-5 ★ rating to proceed!",
-                fg="#EF4444"
-            )
-        break_length_label.config(text=_format_timer(state["remaining"]))
-        root.update()
-        break_length_label.config(text=_format_timer(state["remaining"]))
-        root.update()
+    while True:
+        try:
+            if not root.winfo_exists():
+                break
+        except Exception:
+            break
+
+        all_mandatory_done = bool(
+            state["session_types"]
+            and state["productivity_rating"]
+            and state.get("routine_selected")
+        )
+        if (state["remaining"] <= 0 and all_mandatory_done) or state["end_break_now"] or state["exit_app"]:
+            if state["remaining"] <= 0:
+                break
+            if state["end_break_now"] or state["exit_app"]:
+                break
+
+        try:
+            if state["remaining"] > 0:
+                timer_label.config(text=_format_timer(state["remaining"]))
+                timer_status_badge.config(text="🟢 BREAK TIMER RUNNING  •  STAND UP, WALK & RELAX YOUR EYES", fg="#10B981")
+            else:
+                missing = []
+                if not state["session_types"]:
+                    missing.append("Work Type")
+                if not state["productivity_rating"]:
+                    missing.append("Rating")
+                if not state.get("routine_selected"):
+                    missing.append("Routine / Nothing")
+                missing_text = " + ".join(missing) if missing else "Mandatory"
+                timer_label.config(text=f"00:00 (Select: {missing_text})")
+                timer_status_badge.config(text="⚠️ TIME EXPIRED  •  MAKE MANDATORY SELECTIONS TO RESUME", fg="#EF4444")
+
+            root.update()
+        except Exception:
+            break
+
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
         elif state["remaining"] <= 20 and not state["beep_20sec_played"]:
             state["beep_20sec_played"] = True
             play_beep()
+
         tick_before_sleep = time.time()
         time.sleep(1)
         tick_after_sleep = time.time()
@@ -1154,7 +1840,14 @@ def run_break_session(
     else:
         ended_by = "userEndBreakNow" if state["end_break_now"] else "timer"
 
-    root.destroy()
+    try:
+        if root.winfo_exists():
+            root.destroy()
+    except Exception:
+        pass
+
+    selected_types_list = list(state["session_types"]) if state["session_types"] else ["work"]
+    session_type_str = " + ".join(sorted(state["session_types"])) if state["session_types"] else "work"
 
     return {
         "plannedBreakSeconds": max(MIN_DURATION_SECONDS, int(break_seconds)),
@@ -1165,11 +1858,14 @@ def run_break_session(
         "nextBreakSeconds": state["next_break"],
         "interactionLog": state["interaction_log"],
         "productivityRating": state.get("productivity_rating"),
+        "routineSelected": state.get("routine_selected", "nothing"),
+        "sessionTypes": selected_types_list,
+        "sessionType": session_type_str,
+        "activityType": session_type_str,
         "guiAvailable": True,
         "sessionInterruptedBySleep": state["suspend_detected"],
+        "isWalkBreak": is_walk_break,
     }
-
-
 def lock_screen(break_time):
     result = run_break_session(
         break_seconds=break_time,
