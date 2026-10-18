@@ -146,6 +146,14 @@ DEFAULT_ROUTINE_SCHEDULE = {
 }
 
 
+def _get_log_path():
+    """Returns path to pomodoro_log.json, respecting POMODORO_LOG_PATH if set."""
+    custom = os.environ.get("POMODORO_LOG_PATH")
+    if custom:
+        return Path(custom)
+    return Path(__file__).resolve().parent / "pomodoro_log.json"
+
+
 def _get_time_slot():
     hour = datetime.now().hour
     if 5 <= hour < 12:
@@ -157,7 +165,7 @@ def _get_time_slot():
 
 
 def _load_routine_completions():
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
     if not log_path.exists():
         return []
     try:
@@ -170,7 +178,8 @@ def _load_routine_completions():
 
 
 def _save_routine_completion(task_id, task_title=""):
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     today_str = datetime.now().strftime("%Y-%m-%d")
     now_iso = datetime.now().isoformat() + "Z"
 
@@ -199,14 +208,15 @@ def _save_routine_completion(task_id, task_title=""):
             log_path.write_text(json.dumps(data, indent=2))
 
 
-MAX_DAILY_SKIPS = 2
+MAX_DAILY_SKIPS = int(os.environ.get("POMODORO_DAILY_MAX_SKIPS", "2"))
+WARNING_SECONDS = int(os.environ.get("POMODORO_WARNING_SECONDS", "120"))
 
 
 def _load_daily_skips(date_str=None):
     """Loads recorded skips/early continues for the given day (default: today)."""
     if date_str is None:
         date_str = datetime.now().strftime("%Y-%m-%d")
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
     if not log_path.exists():
         return []
     try:
@@ -219,7 +229,8 @@ def _load_daily_skips(date_str=None):
 
 def _record_daily_skip(skip_type="break_early_continue"):
     """Records an early skip / continue event for today."""
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     date_str = datetime.now().strftime("%Y-%m-%d")
     now_iso = datetime.now().isoformat() + "Z"
 
@@ -248,10 +259,13 @@ def _record_daily_skip(skip_type="break_early_continue"):
     return len(day_list)
 
 
-def _get_skips_remaining(max_skips=MAX_DAILY_SKIPS):
+def _get_skips_remaining(max_skips=None):
     """Returns (skips_remaining, skips_used) for today."""
+    if max_skips is None:
+        max_skips = MAX_DAILY_SKIPS
     skips_used = len(_load_daily_skips())
     return max(0, max_skips - skips_used), skips_used
+
 
 
 def _show_locked_warning_toast(root, message="You have reached the limit and now nothing can be done after this. You have to wait."):
@@ -323,7 +337,7 @@ def _generate_break_dashboard_image(current_work_seconds=0, display_width=860, d
     if pd is None or plt is None or Image is None or mdates is None:
         return None
 
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
     if not log_path.exists():
         events = []
     else:
@@ -463,7 +477,7 @@ def _generate_break_dashboard_image(current_work_seconds=0, display_width=860, d
 
 
 def _load_summary_stats(current_work_seconds=0):
-    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    log_path = _get_log_path()
     if not log_path.exists():
         events = []
     else:
@@ -987,6 +1001,7 @@ def run_work_session(work_seconds):
     action_button.pack(pady=14)
 
     loop_count = 0
+    last_tick_at = time.time()
     while state["remaining"] > 0 and not state["go_break_now"]:
         timer_label.config(text=_format_timer(state["remaining"]))
 
@@ -1009,7 +1024,7 @@ def run_work_session(work_seconds):
 
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
-        elif state["remaining"] <= 120 and not state["warning_2min_shown"]:
+        elif state["remaining"] <= WARNING_SECONDS and not state["warning_2min_shown"]:
             state["warning_2min_shown"] = True
             play_beep()
             _show_two_minute_warning_toast(root)
@@ -1160,6 +1175,8 @@ def run_break_session(
         "routine_selected": "nothing",
     }
     ui_callbacks = {}
+    resume_btn = None
+    exit_btn = None
 
     # Central layout container
     main_frame = tk.Frame(root, bg="#070A11")
@@ -1711,6 +1728,8 @@ def run_break_session(
     ).pack(side="right")
 
     def update_resume_state():
+        if resume_btn is None:
+            return
         skips_left, skips_used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
         if state["remaining"] > 0:
             if skips_left <= 0:
@@ -2089,6 +2108,9 @@ def run_break_session(
         command=exit_app,
     )
     exit_btn.pack(side="left", padx=12)
+
+    update_resume_state()
+    last_tick_at = time.time()
 
     while True:
         try:

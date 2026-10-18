@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 from uuid import uuid4
+import signal
 import sys
 
 try:
@@ -35,10 +36,20 @@ except Exception:
 
 
 ROOT_DIR = Path(__file__).resolve().parent
-JSON_LOG_PATH = ROOT_DIR / "pomodoro_log.json"
+
+
+def get_json_log_path():
+    """Returns path to pomodoro_log.json, respecting POMODORO_LOG_PATH if set."""
+    custom = os.environ.get("POMODORO_LOG_PATH")
+    if custom:
+        return Path(custom)
+    return ROOT_DIR / "pomodoro_log.json"
+
+
+JSON_LOG_PATH = get_json_log_path()
 ENV_PATHS = (ROOT_DIR / "env" / ".env", ROOT_DIR / ".env")
-WORK_TIME_SECONDS = 40 * 60
-BREAK_TIME_SECONDS = 4 * 60
+WORK_TIME_SECONDS = int(os.environ.get("POMODORO_WORK_SECONDS", str(40 * 60)))
+BREAK_TIME_SECONDS = int(os.environ.get("POMODORO_BREAK_SECONDS", str(4 * 60)))
 MONGO_COLLECTION_NAME = "pomodoro_sessions"
 LOCK_FILE_NAME = "pomodoro.lock"
 
@@ -162,22 +173,25 @@ def acquire_single_instance_lock():
 
 
 def load_json_log():
-    if not JSON_LOG_PATH.exists():
+    log_path = get_json_log_path()
+    if not log_path.exists():
         return {"appName": "pomodoro", "createdAt": iso_now(), "events": []}
 
     try:
-        return json.loads(JSON_LOG_PATH.read_text())
-    except json.JSONDecodeError:
+        return json.loads(log_path.read_text())
+    except (json.JSONDecodeError, OSError):
         return {"appName": "pomodoro", "createdAt": iso_now(), "events": []}
 
 
 def save_json_log(log_data):
-    temp_path = JSON_LOG_PATH.with_suffix(".json.tmp")
+    log_path = get_json_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = log_path.with_suffix(".json.tmp")
     try:
         temp_path.write_text(json.dumps(log_data, indent=2))
-        os.replace(temp_path, JSON_LOG_PATH)
+        os.replace(temp_path, log_path)
     except Exception:
-        JSON_LOG_PATH.write_text(json.dumps(log_data, indent=2))
+        log_path.write_text(json.dumps(log_data, indent=2))
 
 
 def write_json_log(session_record):
@@ -401,5 +415,21 @@ def main():
         next_break_override = next_break
 
 
+def _handle_exit_signal(signum, frame):
+    try:
+        sync_pending_sessions()
+    except Exception:
+        pass
+    sys.exit(0)
+
+
+try:
+    signal.signal(signal.SIGINT, _handle_exit_signal)
+    signal.signal(signal.SIGTERM, _handle_exit_signal)
+except Exception:
+    pass
+
+
 if __name__ == "__main__":
     main()
+
