@@ -993,7 +993,7 @@ def run_work_session(work_seconds):
         state=btn_state,
         relief="flat",
         bd=0,
-        cursor="hand2" if skips_left > 0 else "no",
+        cursor="hand2" if skips_left > 0 else "",
         padx=20,
         pady=8,
         command=go_on_break_now,
@@ -1003,24 +1003,33 @@ def run_work_session(work_seconds):
     loop_count = 0
     last_tick_at = time.time()
     while state["remaining"] > 0 and not state["go_break_now"]:
-        timer_label.config(text=_format_timer(state["remaining"]))
+        try:
+            if not root.winfo_exists():
+                break
+        except Exception:
+            break
 
-        # Periodic live system metrics update
-        loop_count += 1
-        if get_system_metrics and loop_count % 2 == 0:
-            metrics = get_system_metrics()
-            if metrics["is_high_usage"]:
-                sys_lbl.config(
-                    text=f"⚠️ HIGH SYSTEM USAGE: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB) — Close heavy apps",
-                    fg="#EF4444",
-                )
-            else:
-                sys_lbl.config(
-                    text=f"💻 System: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB)  •  🌐 Net: {metrics['network_status']}",
-                    fg="#64748B",
-                )
+        try:
+            timer_label.config(text=_format_timer(state["remaining"]))
 
-        root.update()
+            # Periodic live system metrics update
+            loop_count += 1
+            if get_system_metrics and loop_count % 2 == 0:
+                metrics = get_system_metrics()
+                if metrics["is_high_usage"]:
+                    sys_lbl.config(
+                        text=f"⚠️ HIGH SYSTEM USAGE: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB) — Close heavy apps",
+                        fg="#EF4444",
+                    )
+                else:
+                    sys_lbl.config(
+                        text=f"💻 System: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB)  •  🌐 Net: {metrics['network_status']}",
+                        fg="#64748B",
+                    )
+
+            root.update()
+        except Exception:
+            break
 
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
@@ -1028,10 +1037,14 @@ def run_work_session(work_seconds):
             state["warning_2min_shown"] = True
             play_beep()
             _show_two_minute_warning_toast(root)
-            message_label.config(
-                text="⏳ 2 Minutes Remaining: Conclude your current thought & save work for the break.",
-                fg="#F59E0B",
-            )
+            try:
+                if root.winfo_exists():
+                    message_label.config(
+                        text="⏳ 2 Minutes Remaining: Conclude your current thought & save work for the break.",
+                        fg="#F59E0B",
+                    )
+            except Exception:
+                pass
 
         tick_before_sleep = time.time()
         time.sleep(1)
@@ -1053,7 +1066,11 @@ def run_work_session(work_seconds):
     if not state["suspend_detected"]:
         play_beep()
 
-    root.destroy()
+    try:
+        if root.winfo_exists():
+            root.destroy()
+    except Exception:
+        pass
 
     return {
         "plannedWorkSeconds": max(MIN_DURATION_SECONDS, int(work_seconds)),
@@ -1738,7 +1755,7 @@ def run_break_session(
                     fg="#EF4444",
                     text="( 🔒 LOCKED: SKIP LIMIT REACHED (2/2) — YOU HAVE TO WAIT )",
                     state="disabled",
-                    cursor="no",
+                    cursor="",
                 )
             else:
                 resume_btn.config(
@@ -2072,7 +2089,7 @@ def run_break_session(
     resume_btn_bg = "#065F46" if skips_left_init > 0 else "#1E293B"
     resume_btn_fg = "#A7F3D0" if skips_left_init > 0 else "#EF4444"
     resume_btn_state = "normal" if skips_left_init > 0 else "disabled"
-    resume_btn_cursor = "hand2" if skips_left_init > 0 else "no"
+    resume_btn_cursor = "hand2" if skips_left_init > 0 else ""
 
     resume_btn = tk.Button(
         footer_center,
@@ -2148,7 +2165,7 @@ def run_break_session(
                         bg="#1E293B",
                         fg="#EF4444",
                         state="disabled",
-                        cursor="no",
+                        cursor="",
                     )
                 else:
                     resume_btn.config(

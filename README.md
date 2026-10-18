@@ -81,7 +81,7 @@ python3 -m pomodoro
 
 ---
 
-## 🧪 Automated Test Suite (33 Passing Test Cases)
+## 🧪 Automated Test Suite (35 Passing Test Cases)
 
 The project includes an isolated, production-grade test suite covering skip limits, system monitoring, atomic storage, and cross-platform compatibility:
 
@@ -116,6 +116,8 @@ The project includes an isolated, production-grade test suite covering skip limi
   * `test_time_slot_resolution`
   * `test_routine_schedule_structure`
   * `test_run_break_session_initialization`
+  * `test_run_work_session_when_skips_exhausted`
+  * `test_run_break_session_when_skips_exhausted`
 * **`tests/test_storage_and_sync.py`**:
   * `test_load_json_log_missing_file`
   * `test_load_json_log_corrupt_file`

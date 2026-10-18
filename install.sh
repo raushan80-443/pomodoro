@@ -56,7 +56,7 @@ ExecStart=$VENV/bin/python -m pomodoro
 Restart=on-failure
 RestartSec=60
 Environment=PYTHONUNBUFFERED=1
-Environment=POMODORO_SESSION_COUNT=1
+Environment=POMODORO_SESSION_COUNT=0
 Environment=POMODORO_WAIT_FOR_DISPLAY=1
 Environment=POMODORO_DISPLAY_INITIAL_DELAY_SECONDS=60
 Environment=POMODORO_DISPLAY_RETRY_SECONDS=60
@@ -87,7 +87,7 @@ ExecStart=$(command -v $PYTHON_CMD) -m pomodoro
 Restart=on-failure
 RestartSec=60
 Environment=PYTHONUNBUFFERED=1
-Environment=POMODORO_SESSION_COUNT=1
+Environment=POMODORO_SESSION_COUNT=0
 Environment=POMODORO_WAIT_FOR_DISPLAY=1
 Environment=POMODORO_DISPLAY_INITIAL_DELAY_SECONDS=60
 Environment=POMODORO_DISPLAY_RETRY_SECONDS=60

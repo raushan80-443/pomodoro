@@ -381,7 +381,7 @@ def main():
     if start_network_monitor:
         start_network_monitor()
 
-    session_count = max(1, env_int("POMODORO_SESSION_COUNT", 1))
+    session_count = env_int("POMODORO_SESSION_COUNT", 0)
 
     if env_flag("POMODORO_WAIT_FOR_DISPLAY", default=False):
         wait_for_display(
@@ -394,7 +394,8 @@ def main():
     next_work_override = None
     next_break_override = None
 
-    for cycle_number in range(1, session_count + 1):
+    cycle_number = 1
+    while True:
         work_seconds = next_work_override or WORK_TIME_SECONDS
         break_seconds = next_break_override or BREAK_TIME_SECONDS
 
@@ -413,6 +414,12 @@ def main():
 
         next_work_override = next_work
         next_break_override = next_break
+
+        if session_count > 0 and cycle_number >= session_count:
+            print(f"Completed requested {session_count} session(s); exiting.")
+            return
+
+        cycle_number += 1
 
 
 def _handle_exit_signal(signum, frame):

@@ -88,3 +88,44 @@ def test_run_break_session_initialization(monkeypatch):
     )
     assert result["plannedBreakSeconds"] == 240
     assert result["guiAvailable"] is True
+
+
+def test_run_work_session_when_skips_exhausted(monkeypatch):
+    """Verify run_work_session initializes cleanly without TclError when daily skips are exhausted."""
+    orig_create = pomo._create_tk_root
+
+    def auto_close_root(*args, **kwargs):
+        root = orig_create(*args, **kwargs)
+        root.after(20, lambda: root.destroy() if root.winfo_exists() else None)
+        return root
+
+    monkeypatch.setattr(pomo, "_create_tk_root", auto_close_root)
+    monkeypatch.setattr(pomo, "_get_skips_remaining", lambda max_skips=None: (0, 2))
+
+    result = pomo.run_work_session(work_seconds=60)
+    assert result["plannedWorkSeconds"] == 60
+    assert result["guiAvailable"] is True
+
+
+def test_run_break_session_when_skips_exhausted(monkeypatch):
+    """Verify run_break_session initializes cleanly without TclError when daily skips are exhausted."""
+    orig_create = pomo._create_tk_root
+
+    def auto_close_root(*args, **kwargs):
+        root = orig_create(*args, **kwargs)
+        root.after(20, lambda: root.destroy() if root.winfo_exists() else None)
+        return root
+
+    monkeypatch.setattr(pomo, "_create_tk_root", auto_close_root)
+    monkeypatch.setattr(pomo, "_get_skips_remaining", lambda max_skips=None: (0, 2))
+
+    result = pomo.run_break_session(
+        break_seconds=240,
+        default_next_work_seconds=2400,
+        default_next_break_seconds=240,
+        stats={"today_sessions": 1, "streak_days": "1 Day 🔥"},
+        is_walk_break=False,
+        session_number=1,
+    )
+    assert result["plannedBreakSeconds"] == 240
+    assert result["guiAvailable"] is True
