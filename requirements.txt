@@ -1,1 +1,5 @@
 pymongo
+psutil
+matplotlib
+pandas
+pillow

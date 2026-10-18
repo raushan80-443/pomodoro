@@ -3,16 +3,34 @@ import json
 import os
 import random
 import subprocess
+import sys
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
-import pandas as pd
-from PIL import Image, ImageTk
+try:
+    import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
+    import pandas as pd
+    from PIL import Image, ImageTk
+except ImportError:
+    mdates = None
+    plt = None
+    pd = None
+    Image = None
+    ImageTk = None
 
-os.environ["MPLCONFIGDIR"] = "/tmp"
+os.environ["MPLCONFIGDIR"] = tempfile.gettempdir()
+
+try:
+    from .network_monitor import get_system_metrics, send_desktop_notification
+except Exception:
+    try:
+        from network_monitor import get_system_metrics, send_desktop_notification
+    except Exception:
+        get_system_metrics = None
+        send_desktop_notification = None
 
 MIN_DURATION_SECONDS = 60
 SUSPEND_GAP_SECONDS = 10
@@ -181,12 +199,130 @@ def _save_routine_completion(task_id, task_title=""):
             log_path.write_text(json.dumps(data, indent=2))
 
 
+MAX_DAILY_SKIPS = 2
+
+
+def _load_daily_skips(date_str=None):
+    """Loads recorded skips/early continues for the given day (default: today)."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    if not log_path.exists():
+        return []
+    try:
+        data = json.loads(log_path.read_text())
+        daily_skips = data.get("dailySkips", {})
+        return daily_skips.get(date_str, [])
+    except Exception:
+        return []
+
+
+def _record_daily_skip(skip_type="break_early_continue"):
+    """Records an early skip / continue event for today."""
+    log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    now_iso = datetime.now().isoformat() + "Z"
+
+    data = {"appName": "pomodoro", "createdAt": now_iso, "events": []}
+    if log_path.exists():
+        try:
+            data = json.loads(log_path.read_text())
+        except Exception:
+            data = {"appName": "pomodoro", "createdAt": now_iso, "events": []}
+
+    daily_skips = data.get("dailySkips", {})
+    day_list = daily_skips.get(date_str, [])
+    day_list.append({
+        "timestamp": now_iso,
+        "type": skip_type,
+    })
+    daily_skips[date_str] = day_list
+    data["dailySkips"] = daily_skips
+
+    temp_path = log_path.with_suffix(".json.tmp")
+    try:
+        temp_path.write_text(json.dumps(data, indent=2))
+        os.replace(temp_path, log_path)
+    except Exception:
+        log_path.write_text(json.dumps(data, indent=2))
+    return len(day_list)
+
+
+def _get_skips_remaining(max_skips=MAX_DAILY_SKIPS):
+    """Returns (skips_remaining, skips_used) for today."""
+    skips_used = len(_load_daily_skips())
+    return max(0, max_skips - skips_used), skips_used
+
+
+def _show_locked_warning_toast(root, message="You have reached the limit and now nothing can be done after this. You have to wait."):
+    """Shows an unmistakable modal alert when user attempts to skip beyond the 2-skips/day limit."""
+    import tkinter as tk
+    try:
+        toast = tk.Toplevel(root)
+        toast.overrideredirect(True)
+        toast.attributes("-topmost", True)
+        toast.configure(bg="#DC2626")
+
+        card = tk.Frame(toast, bg="#450A0A", padx=26, pady=16, highlightbackground="#EF4444", highlightthickness=2)
+        card.pack(padx=2, pady=2, fill="both", expand=True)
+
+        tk.Label(
+            card,
+            text="🔒 DAILY SKIP LIMIT REACHED (2/2 USED)",
+            font=("Helvetica", 14, "bold"),
+            fg="#FEE2E2",
+            bg="#450A0A",
+        ).pack()
+
+        tk.Label(
+            card,
+            text=message,
+            font=("Helvetica", 11, "bold"),
+            fg="#FCA5A5",
+            bg="#450A0A",
+            wraplength=480,
+            justify="center",
+        ).pack(pady=(8, 12))
+
+        close_btn = tk.Button(
+            card,
+            text="I Understand — Waiting For Timer ⌛",
+            font=("Helvetica", 11, "bold"),
+            bg="#7F1D1D",
+            fg="#FFFFFF",
+            activebackground="#991B1B",
+            relief="flat",
+            bd=0,
+            cursor="hand2",
+            padx=18,
+            pady=6,
+            command=toast.destroy,
+        )
+        close_btn.pack()
+
+        toast.update_idletasks()
+        w = max(500, toast.winfo_reqwidth())
+        h = max(140, toast.winfo_reqheight())
+        sw = toast.winfo_screenwidth()
+        sh = toast.winfo_screenheight()
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 2)
+        toast.geometry(f"{w}x{h}+{x}+{y}")
+
+        toast.after(7000, lambda: toast.destroy() if toast.winfo_exists() else None)
+    except Exception as err:
+        print(f"Locked toast error: {err}")
+
+
 def _generate_break_dashboard_image(current_work_seconds=0, display_width=860, display_height=260):
     """
     Generates EXACTLY 2 clean, modern, motivational charts in a sleek executive dark theme:
     1. Daily Consistency (Trend over recent weeks with 3h goal line)
     2. Cumulative Growth (Total deep work hours compounding over time)
     """
+    if pd is None or plt is None or Image is None or mdates is None:
+        return None
+
     log_path = Path(__file__).resolve().parent / "pomodoro_log.json"
     if not log_path.exists():
         events = []
@@ -545,6 +681,11 @@ def _candidate_display_envs():
 def _create_tk_root(window_title):
     import tkinter as tk
 
+    if sys.platform == "win32":
+        root = tk.Tk()
+        root.title(window_title)
+        return root
+
     last_error = None
     for display, xauthority in _candidate_display_envs():
         previous_display = os.environ.get("DISPLAY")
@@ -594,6 +735,14 @@ def _play_countdown_alert(root):
 
 
 def play_beep():
+    if sys.platform == "win32":
+        try:
+            import winsound
+            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            return True
+        except Exception:
+            pass
+
     sound_files = [
         "/usr/share/sounds/freedesktop/stereo/bell.oga",
         "/usr/share/sounds/freedesktop/stereo/message.oga",
@@ -661,20 +810,27 @@ def wait_for_display(initial_delay_seconds=60, retry_seconds=60):
             time.sleep(retry_delay)
 
 
-def _show_one_minute_warning_toast(root):
+def _show_two_minute_warning_toast(root):
     """
-    Shows an executive floating heads-up toast for 3 seconds so the user can conclude tasks smoothly.
+    Shows an executive floating heads-up toast for 5 seconds with 2 minutes remaining so the user can conclude tasks smoothly.
     """
     import tkinter as tk
 
-    try:
-        subprocess.Popen(
-            ["notify-send", "-u", "critical", "-t", "3500", "⏳ Pomodoro: Break in 1 Minute", "Wrap up and conclude your current thought before break starts."],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    if send_desktop_notification:
+        send_desktop_notification(
+            "⏳ Pomodoro: Break in 2 Minutes",
+            "Wrap up and save your work. 2 minutes remaining before break starts.",
+            urgency="critical",
         )
-    except Exception:
-        pass
+    else:
+        try:
+            subprocess.Popen(
+                ["notify-send", "-u", "critical", "-t", "5000", "⏳ Pomodoro: Break in 2 Minutes", "Wrap up and conclude your current thought before break starts."],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
 
     try:
         toast = tk.Toplevel(root)
@@ -682,36 +838,36 @@ def _show_one_minute_warning_toast(root):
         toast.attributes("-topmost", True)
         toast.configure(bg="#F59E0B")
 
-        card = tk.Frame(toast, bg="#0E1626", padx=22, pady=10)
+        card = tk.Frame(toast, bg="#0E1626", padx=24, pady=12)
         card.pack(padx=2, pady=2, fill="both", expand=True)
 
         tk.Label(
             card,
-            text="⏳ BREAK IN 1 MINUTE",
-            font=("Helvetica", 13, "bold"),
+            text="⏳ BREAK IN 2 MINUTES",
+            font=("Helvetica", 14, "bold"),
             fg="#F59E0B",
             bg="#0E1626",
         ).pack()
 
         tk.Label(
             card,
-            text="Conclude your current thought & save your work for the upcoming break.",
+            text="Conclude your current thought & save your work — 2 minutes remaining to wrap up.",
             font=("Helvetica", 10),
             fg="#CBD5E1",
             bg="#0E1626",
-        ).pack(pady=(2, 0))
+        ).pack(pady=(4, 0))
 
         toast.update_idletasks()
-        w = toast.winfo_reqwidth()
-        h = toast.winfo_reqheight()
+        w = max(440, toast.winfo_reqwidth())
+        h = max(75, toast.winfo_reqheight())
         sw = toast.winfo_screenwidth()
         x = max(0, (sw - w) // 2)
         y = 35
         toast.geometry(f"{w}x{h}+{x}+{y}")
 
-        toast.after(3000, lambda: toast.destroy())
+        toast.after(5000, lambda: toast.destroy() if toast.winfo_exists() else None)
     except Exception as err:
-        print(f"1-min warning toast error: {err}")
+        print(f"2-min warning toast error: {err}")
 
 
 def run_work_session(work_seconds):
@@ -741,7 +897,7 @@ def run_work_session(work_seconds):
     import tkinter as tk
 
     root.attributes("-topmost", False)
-    root.geometry("720x420")
+    root.geometry("740x440")
     root.iconify()
     root.configure(bg="#070A11")
 
@@ -753,7 +909,7 @@ def run_work_session(work_seconds):
         "interaction_log": [],
         "suspend_detected": False,
         "active_elapsed_seconds": 0,
-        "warning_1min_shown": False,
+        "warning_2min_shown": False,
     }
 
     title_label = tk.Label(
@@ -763,7 +919,17 @@ def run_work_session(work_seconds):
         fg="#F8FAFC",
         bg="#070A11",
     )
-    title_label.pack(pady=20)
+    title_label.pack(pady=(16, 8))
+
+    # Live system metrics badge in work window
+    sys_lbl = tk.Label(
+        root,
+        text="💻 System: Checking resources...",
+        font=("Helvetica", 10),
+        fg="#64748B",
+        bg="#070A11",
+    )
+    sys_lbl.pack(pady=(0, 10))
 
     timer_label = tk.Label(
         root,
@@ -772,7 +938,7 @@ def run_work_session(work_seconds):
         fg="#38BDF8",
         bg="#070A11",
     )
-    timer_label.pack(pady=20)
+    timer_label.pack(pady=10)
 
     message_label = tk.Label(
         root,
@@ -783,37 +949,74 @@ def run_work_session(work_seconds):
     )
     message_label.pack(pady=10)
 
+    skips_left, skips_used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+
     def go_on_break_now():
         if state["go_break_now"]:
             return
+        left, used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+        if state["remaining"] > 0:
+            if left <= 0:
+                _show_locked_warning_toast(root, "You have reached the limit and now nothing can be done after this. You have to wait.")
+                return
+            _record_daily_skip("work_early_break")
+            state["interaction_log"].append({"event": "usedDailySkipWork", "at": int(time.time() - started_at)})
+
         state["go_break_now"] = True
         state["interaction_log"].append({"event": "goBreakNow", "at": int(time.time() - started_at)})
 
+    btn_txt = f"Go On Break Now ({skips_left}/2 Skips Left)" if skips_left > 0 else "🔒 Locked (Daily Skip Limit 2/2 Reached)"
+    btn_bg = "#F59E0B" if skips_left > 0 else "#1E293B"
+    btn_fg = "#070A11" if skips_left > 0 else "#64748B"
+    btn_state = "normal" if skips_left > 0 else "disabled"
+
     action_button = tk.Button(
         root,
-        text="Go On Break Now",
-        font=("Helvetica", 14, "bold"),
-        bg="#F59E0B",
-        fg="#070A11",
+        text=btn_txt,
+        font=("Helvetica", 13, "bold"),
+        bg=btn_bg,
+        fg=btn_fg,
+        state=btn_state,
         relief="flat",
         bd=0,
-        cursor="hand2",
+        cursor="hand2" if skips_left > 0 else "no",
         padx=20,
         pady=8,
         command=go_on_break_now,
     )
-    action_button.pack(pady=20)
+    action_button.pack(pady=14)
 
+    loop_count = 0
     while state["remaining"] > 0 and not state["go_break_now"]:
         timer_label.config(text=_format_timer(state["remaining"]))
+
+        # Periodic live system metrics update
+        loop_count += 1
+        if get_system_metrics and loop_count % 2 == 0:
+            metrics = get_system_metrics()
+            if metrics["is_high_usage"]:
+                sys_lbl.config(
+                    text=f"⚠️ HIGH SYSTEM USAGE: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB) — Close heavy apps",
+                    fg="#EF4444",
+                )
+            else:
+                sys_lbl.config(
+                    text=f"💻 System: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB)  •  🌐 Net: {metrics['network_status']}",
+                    fg="#64748B",
+                )
+
         root.update()
 
         if state["remaining"] <= 3:
             _play_countdown_alert(root)
-        elif state["remaining"] <= 60 and not state["warning_1min_shown"]:
-            state["warning_1min_shown"] = True
+        elif state["remaining"] <= 120 and not state["warning_2min_shown"]:
+            state["warning_2min_shown"] = True
             play_beep()
-            _show_one_minute_warning_toast(root)
+            _show_two_minute_warning_toast(root)
+            message_label.config(
+                text="⏳ 2 Minutes Remaining: Conclude your current thought & save work for the break.",
+                fg="#F59E0B",
+            )
 
         tick_before_sleep = time.time()
         time.sleep(1)
@@ -947,14 +1150,14 @@ def run_break_session(
         "next_work": max(MIN_DURATION_SECONDS, int(default_next_work_seconds)),
         "next_break": max(MIN_DURATION_SECONDS, int(default_next_break_seconds)),
         "interaction_log": [],
-        "productivity_rating": None,
-        "session_types": set(),
+        "productivity_rating": 4,
+        "session_types": {"work"},
         "session_time_selected": False,
         "suspend_detected": False,
         "active_elapsed_seconds": 0,
         "beep_20sec_played": False,
         "session_note": "",
-        "routine_selected": None,
+        "routine_selected": "nothing",
     }
     ui_callbacks = {}
 
@@ -997,6 +1200,20 @@ def run_break_session(
         highlightthickness=1,
     ).pack(side="right", padx=(8, 0))
 
+    # Live system metrics badge in break app bar
+    sys_perf_lbl = tk.Label(
+        badge_box,
+        text="💻 Checking resources...",
+        font=("Helvetica", 11, "bold"),
+        fg="#94A3B8",
+        bg="#1E293B",
+        padx=14,
+        pady=8,
+        highlightbackground="#334155",
+        highlightthickness=1,
+    )
+    sys_perf_lbl.pack(side="right", padx=(0, 10))
+
     # 2. MOTIVATIONAL QUOTE CARD (Large, high-contrast, easy to read from across the room)
     quote_card = tk.Frame(main_frame, bg="#111827", highlightbackground="#374151", highlightthickness=2, padx=24, pady=12)
     quote_card.pack(fill="x", pady=(0, 12))
@@ -1012,7 +1229,7 @@ def run_break_session(
 
     # 3. HERO TIMER CARD (Massive digits and prominent status)
     timer_hero = tk.Frame(main_frame, bg="#0F172A", highlightbackground="#334155", highlightthickness=2, padx=24, pady=10)
-    timer_hero.pack(fill="x", pady=(0, 12))
+    timer_hero.pack(fill="x", pady=(0, 10))
 
     timer_color = "#34D399" if is_walk_break else "#38BDF8"
     timer_label = tk.Label(
@@ -1032,6 +1249,40 @@ def run_break_session(
         bg="#0F172A",
     )
     timer_status_badge.pack(pady=(2, 4))
+
+    # 4. DAILY SKIP LIMIT & LOCK STATUS CARD
+    skips_left, skips_used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+    skip_card_bg = "#450A0A" if skips_left <= 0 else "#0F172A"
+    skip_border = "#EF4444" if skips_left <= 0 else "#334155"
+
+    skip_status_card = tk.Frame(
+        main_frame,
+        bg=skip_card_bg,
+        highlightbackground=skip_border,
+        highlightthickness=2,
+        padx=20,
+        pady=8,
+    )
+    skip_status_card.pack(fill="x", pady=(0, 10))
+
+    skip_status_lbl = tk.Label(
+        skip_status_card,
+        text=f"⚡ DAILY EARLY CONTINUES / SKIPS: {skips_left} OF 2 REMAINING TODAY" if skips_left > 0 else "🔒 DAILY SKIP LIMIT REACHED (2/2 USED) • SCREEN LOCKED UNTIL TIMER COMPLETES",
+        font=("Helvetica", 11, "bold"),
+        fg="#38BDF8" if skips_left > 0 else "#FCA5A5",
+        bg=skip_card_bg,
+    )
+    skip_status_lbl.pack(side="left")
+
+    skip_limit_msg_lbl = tk.Label(
+        skip_status_card,
+        text="🔒 You have reached the limit and now nothing can be done after this. You have to wait.",
+        font=("Helvetica", 11, "bold"),
+        fg="#FCA5A5",
+        bg=skip_card_bg,
+    )
+    if skips_left <= 0:
+        skip_limit_msg_lbl.pack(side="right")
 
     # If Walk Break: show sleep action button with pill styling
     # If Walk Break: auto-sleep PC after 30 seconds for 10-minute walk break
@@ -1217,9 +1468,9 @@ def run_break_session(
 
     status_lbl = tk.Label(
         routine_col,
-        text="⚠️ MANDATORY: Complete any 1 task or click '( ❌ Nothing )'",
+        text="💡 Wellness & Routine Habits (Optional — click Done if completed)",
         font=("Helvetica", 10, "bold"),
-        fg="#EF4444",
+        fg="#38BDF8",
         bg="#0F172A",
         anchor="w",
     )
@@ -1460,22 +1711,31 @@ def run_break_session(
     ).pack(side="right")
 
     def update_resume_state():
-        ready = bool(
-            state["session_types"]
-            and state["productivity_rating"]
-            and state.get("routine_selected")
-        )
-        if ready:
+        skips_left, skips_used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+        if state["remaining"] > 0:
+            if skips_left <= 0:
+                resume_btn.config(
+                    bg="#1E293B",
+                    fg="#EF4444",
+                    text="( 🔒 LOCKED: SKIP LIMIT REACHED (2/2) — YOU HAVE TO WAIT )",
+                    state="disabled",
+                    cursor="no",
+                )
+            else:
+                resume_btn.config(
+                    bg="#065F46",
+                    fg="#A7F3D0",
+                    text=f"( ⚡ RESUME WORK EARLY • {skips_left}/2 Skips Left )",
+                    state="normal",
+                    cursor="hand2",
+                )
+        else:
             resume_btn.config(
                 bg="#10B981",
                 fg="#020617",
-                text="( ⚡ RESUME WORK NOW • READY ✓ )",
-            )
-        else:
-            resume_btn.config(
-                bg="#065F46",
-                fg="#A7F3D0",
-                text="( ⚡ RESUME WORK NOW )",
+                text="( ⚡ RESUME NEXT WORK SESSION • BREAK COMPLETE ✓ )",
+                state="normal",
+                cursor="hand2",
             )
 
     # SECTION 1: SPRINT DURATION (OPTIONAL / CUSTOMIZABLE PRESETS)
@@ -1605,17 +1865,17 @@ def run_break_session(
         command=lambda: adjust_next_work(300),
     ).pack(side="left", padx=2)
 
-    # SECTION 2: MULTI-SELECT SESSION WORK TYPES (MANDATORY)
+    # SECTION 2: SINGLE FOCUS GOAL (STREAMLINED - ASK THE RIGHT QUESTION)
     row2 = tk.Frame(launchpad_card, bg="#0F172A")
     row2.pack(fill="x", pady=6)
 
-    tk.Label(row2, text="🏷️ WORK TYPES:", font=("Helvetica", 12, "bold"), fg="#94A3B8", bg="#0F172A", width=20, anchor="w").pack(side="left")
+    tk.Label(row2, text="🎯 PRIMARY FOCUS:", font=("Helvetica", 12, "bold"), fg="#94A3B8", bg="#0F172A", width=20, anchor="w").pack(side="left")
 
     act_status_lbl = tk.Label(
         row2,
-        text="⚠️ MANDATORY: Select 1 or more",
+        text="Focus: 💻 Deep Work / Code (✓)",
         font=("Helvetica", 11, "bold"),
-        fg="#EF4444",
+        fg="#10B981",
         bg="#0F172A",
         width=34,
         anchor="e",
@@ -1626,11 +1886,10 @@ def run_break_session(
     act_btn_frame.pack(side="left", padx=4)
 
     activity_options = [
-        ("study", "📚 Study", "#2563EB"),
-        ("work", "💼 Work", "#D97706"),
+        ("work", "💻 Deep Work / Code", "#2563EB"),
+        ("study", "📚 Study & Learn", "#0284C7"),
         ("exercise", "🏋️ Exercise", "#059669"),
-        ("reading", "📖 Reading", "#0284C7"),
-        ("other", "🎯 Other", "#7C3AED"),
+        ("other", "🎯 Focus Target", "#7C3AED"),
     ]
     activity_buttons = {}
 
@@ -1652,28 +1911,20 @@ def run_break_session(
                     font=("Helvetica", 11),
                 )
 
-        if state["session_types"]:
-            selected_names = [opt_label for opt_key, opt_label, _ in activity_options if opt_key in state["session_types"]]
+        selected_names = [opt_label for opt_key, opt_label, _ in activity_options if opt_key in state["session_types"]]
+        if selected_names:
             act_status_lbl.config(
                 text=f"{' + '.join(selected_names)} (✓)",
                 fg="#10B981",
             )
-        else:
-            act_status_lbl.config(
-                text="⚠️ MANDATORY: Select 1 or more",
-                fg="#EF4444",
-            )
         update_resume_state()
 
-    def toggle_activity(atype):
-        if atype in state["session_types"]:
-            state["session_types"].remove(atype)
-        else:
-            state["session_types"].add(atype)
+    def set_primary_activity(atype):
+        state["session_types"] = {atype}
+        state["session_type"] = atype
         state["interaction_log"].append({
-            "event": "toggleSessionType",
+            "event": "setSessionType",
             "type": atype,
-            "selected": list(state["session_types"]),
             "at": int(time.time() - started_at),
         })
         update_activity_ui()
@@ -1690,20 +1941,16 @@ def run_break_session(
             relief="flat",
             bd=0,
             cursor="hand2",
-            padx=16,
+            padx=14,
             pady=5,
-            command=lambda k=opt_key: toggle_activity(k),
+            command=lambda k=opt_key: set_primary_activity(k),
         )
         btn.pack(side="left", padx=4)
         activity_buttons[opt_key] = btn
 
-    def flash_activity_warning():
-        act_status_lbl.config(text="⚠️ MANDATORY: Select at least 1 work type!", fg="#EF4444")
-        for btn in activity_buttons.values():
-            btn.config(bg="#DC2626", fg="#FFFFFF")
-        root.after(700, update_activity_ui)
+    update_activity_ui()
 
-    # SECTION 3: FOCUS QUALITY RATING (MANDATORY)
+    # SECTION 3: FOCUS QUALITY RATING (CONFIRMED & INTUITIVE)
     row3 = tk.Frame(launchpad_card, bg="#0F172A")
     row3.pack(fill="x", pady=6)
 
@@ -1711,9 +1958,9 @@ def run_break_session(
 
     rating_status_lbl = tk.Label(
         row3,
-        text="⚠️ MANDATORY: Select 1-5 ★",
+        text="Rating: 4★ Great (Confirmed ✓)",
         font=("Helvetica", 11, "bold"),
-        fg="#EF4444",
+        fg="#10B981",
         bg="#0F172A",
         width=34,
         anchor="e",
@@ -1738,12 +1985,13 @@ def run_break_session(
         update_resume_state()
 
     for r in range(1, 6):
+        is_default_star = (r == 4)
         btn = tk.Button(
             star_btn_frame,
-            text=f"( {r}★ )",
-            font=("Helvetica", 11),
-            bg="#1E293B",
-            fg="#CBD5E1",
+            text=f"( ✓ {r}★ )" if is_default_star else f"( {r}★ )",
+            font=("Helvetica", 11, "bold" if is_default_star else "normal"),
+            bg="#F59E0B" if is_default_star else "#1E293B",
+            fg="#020617" if is_default_star else "#CBD5E1",
             activebackground="#F59E0B",
             activeforeground="#020617",
             relief="flat",
@@ -1756,32 +2004,14 @@ def run_break_session(
         btn.pack(side="left", padx=4)
         star_buttons[r] = btn
 
-    def flash_star_warning():
-        rating_status_lbl.config(text="⚠️ MANDATORY: Select a 1-5 ★ rating to continue!", fg="#EF4444")
-        for btn in star_buttons.values():
-            btn.config(bg="#DC2626", fg="#FFFFFF")
-
-        def reset_stars():
-            for r, btn in star_buttons.items():
-                if state["productivity_rating"] == r:
-                    btn.config(text=f"( ✓ {r}★ )", bg="#F59E0B", fg="#020617", font=("Helvetica", 11, "bold"))
-                else:
-                    btn.config(text=f"( {r}★ )", bg="#1E293B", fg="#CBD5E1", font=("Helvetica", 11))
-
-        root.after(700, reset_stars)
-
     def validate_mandatory_inputs():
-        is_valid = True
         if not state["session_types"]:
-            flash_activity_warning()
-            is_valid = False
+            state["session_types"] = {"work"}
         if state["productivity_rating"] is None:
-            flash_star_warning()
-            is_valid = False
+            state["productivity_rating"] = 4
         if not state.get("routine_selected"):
-            flash_routine_warning()
-            is_valid = False
-        return is_valid
+            state["routine_selected"] = "nothing"
+        return True
 
     # 6. ACTION FOOTER BAR (Prominent, High-Visibility Rounded Action Buttons)
     footer_frame = tk.Frame(main_frame, bg="#070A11")
@@ -1791,32 +2021,52 @@ def run_break_session(
     footer_center.pack(anchor="center")
 
     def end_break_now():
-        if not validate_mandatory_inputs():
-            return
+        validate_mandatory_inputs()
+        # If break timer is still running, this counts as an early skip!
+        if state["remaining"] > 0:
+            left, used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+            if left <= 0:
+                _show_locked_warning_toast(root, "You have reached the limit and now nothing can be done after this. You have to wait.")
+                return
+            _record_daily_skip("break_early_continue")
+            state["interaction_log"].append({"event": "usedDailySkipBreak", "skipsUsed": used + 1, "at": int(time.time() - started_at)})
+
         if state["end_break_now"]:
             return
         state["end_break_now"] = True
         state["interaction_log"].append({"event": "endBreakNow", "at": int(time.time() - started_at)})
 
     def exit_app():
-        if not validate_mandatory_inputs():
-            return
+        validate_mandatory_inputs()
+        if state["remaining"] > 0:
+            left, used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+            if left <= 0:
+                _show_locked_warning_toast(root, "You have reached the limit and now nothing can be done after this. You have to wait.")
+                return
         if state["exit_app"]:
             return
         state["exit_app"] = True
         state["interaction_log"].append({"event": "exitApp", "at": int(time.time() - started_at)})
 
+    skips_left_init, _ = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
+    resume_btn_text = f"( ⚡ RESUME WORK EARLY • {skips_left_init}/2 Skips Left )" if skips_left_init > 0 else "( 🔒 LOCKED: SKIP LIMIT REACHED (2/2) — YOU HAVE TO WAIT )"
+    resume_btn_bg = "#065F46" if skips_left_init > 0 else "#1E293B"
+    resume_btn_fg = "#A7F3D0" if skips_left_init > 0 else "#EF4444"
+    resume_btn_state = "normal" if skips_left_init > 0 else "disabled"
+    resume_btn_cursor = "hand2" if skips_left_init > 0 else "no"
+
     resume_btn = tk.Button(
         footer_center,
-        text="( ⚡ RESUME WORK NOW )",
+        text=resume_btn_text,
         font=("Helvetica", 14, "bold"),
-        bg="#065F46",
-        fg="#A7F3D0",
+        bg=resume_btn_bg,
+        fg=resume_btn_fg,
+        state=resume_btn_state,
+        cursor=resume_btn_cursor,
         activebackground="#34D399",
         activeforeground="#020617",
         relief="flat",
         bd=0,
-        cursor="hand2",
         padx=38,
         pady=12,
         command=end_break_now,
@@ -1847,32 +2097,75 @@ def run_break_session(
         except Exception:
             break
 
-        all_mandatory_done = bool(
-            state["session_types"]
-            and state["productivity_rating"]
-            and state.get("routine_selected")
-        )
-        if (state["remaining"] <= 0 and all_mandatory_done) or state["end_break_now"] or state["exit_app"]:
-            if state["remaining"] <= 0:
+        if (state["remaining"] <= 0 and (state["end_break_now"] or state["exit_app"])) or (state["remaining"] <= 0 and not state.get("break_completed_notified")) or state["end_break_now"] or state["exit_app"]:
+            if state["remaining"] <= 0 and (state["end_break_now"] or state["exit_app"]):
                 break
+            if state["remaining"] <= 0 and not state.get("break_completed_notified"):
+                state["break_completed_notified"] = True
+                play_beep()
             if state["end_break_now"] or state["exit_app"]:
                 break
 
         try:
+            left, used = _get_skips_remaining(max_skips=MAX_DAILY_SKIPS)
             if state["remaining"] > 0:
                 timer_label.config(text=_format_timer(state["remaining"]))
                 timer_status_badge.config(text="🟢 BREAK TIMER RUNNING  •  STAND UP, WALK & RELAX YOUR EYES", fg="#10B981")
+                if left <= 0:
+                    skip_status_card.config(bg="#450A0A", highlightbackground="#EF4444")
+                    skip_status_lbl.config(
+                        text="🔒 DAILY SKIP LIMIT REACHED (2/2 USED) • SCREEN LOCKED UNTIL TIMER COMPLETES",
+                        fg="#FCA5A5",
+                        bg="#450A0A",
+                    )
+                    skip_limit_msg_lbl.config(bg="#450A0A")
+                    if not skip_limit_msg_lbl.winfo_ismapped():
+                        skip_limit_msg_lbl.pack(side="right")
+                    resume_btn.config(
+                        text="( 🔒 LOCKED: SKIP LIMIT REACHED (2/2) — YOU HAVE TO WAIT )",
+                        bg="#1E293B",
+                        fg="#EF4444",
+                        state="disabled",
+                        cursor="no",
+                    )
+                else:
+                    resume_btn.config(
+                        text=f"( ⚡ RESUME WORK EARLY • {left}/2 Skips Left )",
+                        bg="#065F46",
+                        fg="#A7F3D0",
+                        state="normal",
+                        cursor="hand2",
+                    )
             else:
-                missing = []
-                if not state["session_types"]:
-                    missing.append("Work Type")
-                if not state["productivity_rating"]:
-                    missing.append("Rating")
-                if not state.get("routine_selected"):
-                    missing.append("Routine / Nothing")
-                missing_text = " + ".join(missing) if missing else "Mandatory"
-                timer_label.config(text=f"00:00 (Select: {missing_text})")
-                timer_status_badge.config(text="⚠️ TIME EXPIRED  •  MAKE MANDATORY SELECTIONS TO RESUME", fg="#EF4444")
+                timer_label.config(text="00:00 (Break Complete ✓)")
+                timer_status_badge.config(text="🎉 BREAK COMPLETE! Click Resume to begin your next focus session.", fg="#10B981")
+                resume_btn.config(
+                    text="( ⚡ RESUME NEXT WORK SESSION • BREAK COMPLETE ✓ )",
+                    bg="#10B981",
+                    fg="#020617",
+                    state="normal",
+                    cursor="hand2",
+                )
+                if skip_limit_msg_lbl.winfo_ismapped():
+                    skip_limit_msg_lbl.pack_forget()
+
+            # Update live system performance in break header
+            if get_system_metrics and state["remaining"] % 2 == 0:
+                metrics = get_system_metrics()
+                if metrics["is_high_usage"]:
+                    sys_perf_lbl.config(
+                        text=f"⚠️ HIGH USAGE: CPU {metrics['cpu_percent']:.0f}%  •  RAM {metrics['memory_percent']:.0f}% — Close heavy apps",
+                        fg="#EF4444",
+                        bg="#450A0A",
+                        highlightbackground="#EF4444",
+                    )
+                else:
+                    sys_perf_lbl.config(
+                        text=f"💻 CPU: {metrics['cpu_percent']:.0f}%  |  RAM: {metrics['memory_percent']:.0f}% ({metrics['memory_used_gb']:.1f}/{metrics['memory_total_gb']:.1f} GB)  |  🌐 Net: {metrics['network_status']}",
+                        fg="#94A3B8",
+                        bg="#1E293B",
+                        highlightbackground="#334155",
+                    )
 
             root.update()
         except Exception:

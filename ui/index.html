@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pomodoro</title>
+  <title>Pomodoro Focus Timer</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -12,7 +12,16 @@
     <!-- Top Drag Bar for Work Mode -->
     <div class="drag-bar" data-tauri-drag-region>
       <div class="drag-title">⚡ POMODORO FOCUS</div>
+      <div class="system-monitor-pill" id="topNavSystemPill">💻 CPU: --% • RAM: --% • 🌐 Net: Online</div>
       <div class="drag-cycle" id="cycleBadge">Cycle #1</div>
+    </div>
+
+    <!-- Floating 2-Minute Warning Heads-Up Toast -->
+    <div id="twoMinToast" class="toast-warning-floating hidden">
+      <div class="toast-card">
+        <div class="toast-title">⏳ BREAK IN 2 MINUTES</div>
+        <div class="toast-body">Wrap up and save your work — 2 minutes remaining so you can complete your current task.</div>
+      </div>
     </div>
 
     <!-- 1. WORK VIEW -->
@@ -23,6 +32,11 @@
           <p class="subtitle">Eliminate distractions. Stay locked in.</p>
         </div>
 
+        <!-- Live System Performance Pill -->
+        <div class="system-monitor-pill" id="workSystemPill">
+          💻 System: CPU 14% • RAM 46% • 🌐 Online
+        </div>
+
         <div class="timer-display-wrap">
           <div class="timer-circle-glow"></div>
           <div class="timer-value" id="workTimer">40:00</div>
@@ -30,6 +44,12 @@
 
         <div class="streak-indicator" id="workStreakBadge">
           🔥 Consistency Streak: Calculating...
+        </div>
+
+        <!-- Daily Skip Limit Badge & Locked Banner -->
+        <div class="skip-pill" id="workSkipBadge">⚡ Daily Skips Left: 2/2</div>
+        <div class="skip-locked-banner hidden" id="workLockedBanner">
+          🔒 You have reached the limit and now nothing can be done after this. You have to wait.
         </div>
 
         <div class="work-actions">
@@ -85,8 +105,26 @@
             <h1>☕ REST & RECHARGE</h1>
             <p>Stand up, relax your eyes, and let your brain consolidate what you learned.</p>
           </div>
-          <div class="break-timer-huge" id="breakTimer">04:00</div>
+          <div class="header-right-wrap">
+            <div class="system-monitor-bar" id="breakSystemBar">
+              💻 System: CPU 14% | RAM 46% | 🌐 Online
+            </div>
+            <div class="break-timer-huge" id="breakTimer">04:00</div>
+          </div>
         </header>
+
+        <!-- Daily Skip Limit & Locked Status Card -->
+        <div class="break-skip-card" id="breakSkipCard">
+          <span class="skip-count-text" id="breakSkipText">⚡ Daily Early Continues / Skips: 2 of 2 Remaining Today</span>
+          <span class="skip-locked-alert hidden" id="breakLockedAlert">
+            🔒 You have reached the limit and now nothing can be done after this. You have to wait.
+          </span>
+        </div>
+
+        <!-- High Resource Usage Alert Banner -->
+        <div class="resource-alert-banner hidden" id="breakResourceAlert">
+          ⚠️ High system resource usage detected! Please cancel or close heavy applications to avoid lag.
+        </div>
 
         <!-- Wellness & Productivity Assistant Bar -->
         <div class="assistant-bar">
@@ -197,12 +235,12 @@
           </div>
         </div>
 
-        <!-- ⭐ MANDATORY PRODUCTIVITY RATING SECTION -->
+        <!-- ⭐ FOCUS GOAL & RATING SECTION (STREAMLINED) -->
         <div class="rating-section" id="ratingSection">
           <div class="rating-header">
-            <span class="rating-title">⭐ RATE THIS SESSION'S FOCUS LEVEL</span>
-            <span id="ratingStatusText" class="rating-status-warning">
-              ⚠️ MANDATORY: Select a 1-5 ★ rating to enable Resume / Exit
+            <span class="rating-title">🎯 PRIMARY FOCUS GOAL & RATING</span>
+            <span id="ratingStatusText" class="rating-status-unlocked">
+              Selected: 💻 Deep Work (✓)  •  Rating: 4★ (✓)
             </span>
           </div>
 
@@ -210,7 +248,7 @@
             <button class="star-btn" data-star="1">1 ★ Low</button>
             <button class="star-btn" data-star="2">2 ★ Fair</button>
             <button class="star-btn" data-star="3">3 ★ Good</button>
-            <button class="star-btn" data-star="4">4 ★ Great</button>
+            <button class="star-btn active" data-star="4">4 ★ Great</button>
             <button class="star-btn" data-star="5">5 ★ Peak Focus</button>
           </div>
         </div>
@@ -218,7 +256,7 @@
         <!-- Action Footer -->
         <footer class="break-actions">
           <button id="btnResumeWork" class="btn btn-gold btn-lg">
-            ⚡ RESUME WORK NOW
+            ⚡ RESUME WORK EARLY (2/2 Skips Left)
           </button>
           <button id="btnExitApp" class="btn btn-crimson btn-md">
             🔴 EXIT APP

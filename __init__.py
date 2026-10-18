@@ -1,12 +1,22 @@
 from datetime import datetime, timezone
 import atexit
-import fcntl
 import json
 import os
 from pathlib import Path
+import tempfile
 import time
 from uuid import uuid4
 import sys
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 
 from pymongo import MongoClient
 from pymongo.errors import PyMongoError
@@ -83,6 +93,8 @@ def _lock_file_path():
     cache_home = os.environ.get("XDG_CACHE_HOME")
     if cache_home:
         lock_dir = Path(cache_home) / "pomodoro"
+    elif sys.platform == "win32":
+        lock_dir = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "pomodoro"
     else:
         lock_dir = Path.home() / ".cache" / "pomodoro"
 
@@ -90,29 +102,54 @@ def _lock_file_path():
         lock_dir.mkdir(parents=True, exist_ok=True)
         return lock_dir / LOCK_FILE_NAME
     except Exception:
-        fallback_dir = Path("/tmp") / f"pomodoro-{os.getuid()}"
+        fallback_dir = Path(tempfile.gettempdir()) / f"pomodoro-lock"
         fallback_dir.mkdir(parents=True, exist_ok=True)
         return fallback_dir / LOCK_FILE_NAME
 
 
 def acquire_single_instance_lock():
     lock_path = _lock_file_path()
-    lock_file = open(lock_path, "w")
-
     try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        lock_file.close()
+        lock_file = open(lock_path, "w")
+    except Exception:
         return None
 
-    lock_file.seek(0)
-    lock_file.truncate()
-    lock_file.write(str(os.getpid()))
-    lock_file.flush()
+    if sys.platform == "win32":
+        if msvcrt:
+            try:
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            except Exception:
+                try:
+                    lock_file.close()
+                except Exception:
+                    pass
+                return None
+    else:
+        if fcntl:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (BlockingIOError, OSError):
+                try:
+                    lock_file.close()
+                except Exception:
+                    pass
+                return None
+
+    try:
+        lock_file.seek(0)
+        lock_file.truncate()
+        lock_file.write(str(os.getpid()))
+        lock_file.flush()
+    except Exception:
+        pass
 
     def _release_lock():
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            if sys.platform == "win32" and msvcrt:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+            elif fcntl:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
         except Exception:
             pass
         try:
