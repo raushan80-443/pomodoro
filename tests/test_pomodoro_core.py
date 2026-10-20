@@ -88,6 +88,30 @@ def test_run_break_session_initialization(monkeypatch):
     )
     assert result["plannedBreakSeconds"] == 240
     assert result["guiAvailable"] is True
+    assert result["isWalkBreak"] is False
+
+
+def test_break_session_always_4_minutes_and_never_walk_break(monkeypatch):
+    """Verify break session is strictly 4 minutes and isWalkBreak is always False even on even session counts."""
+    orig_create = pomo._create_tk_root
+
+    def auto_close_root(*args, **kwargs):
+        root = orig_create(*args, **kwargs)
+        root.after(20, lambda: root.destroy() if root.winfo_exists() else None)
+        return root
+
+    monkeypatch.setattr(pomo, "_create_tk_root", auto_close_root)
+
+    result = pomo.run_break_session(
+        break_seconds=240,
+        default_next_work_seconds=2400,
+        default_next_break_seconds=240,
+        stats={"today_sessions": 4, "streak_days": "5 Days 🔥"},
+        is_walk_break=False,
+        session_number=4,
+    )
+    assert result["plannedBreakSeconds"] == 240
+    assert result["isWalkBreak"] is False
 
 
 def test_run_work_session_when_skips_exhausted(monkeypatch):
@@ -129,3 +153,27 @@ def test_run_break_session_when_skips_exhausted(monkeypatch):
     )
     assert result["plannedBreakSeconds"] == 240
     assert result["guiAvailable"] is True
+    assert result["isWalkBreak"] is False
+
+
+def test_break_session_always_4_minutes_and_never_walk_break(monkeypatch):
+    """Verify break session is strictly 4 minutes and isWalkBreak is always False even on even session counts."""
+    orig_create = pomo._create_tk_root
+
+    def auto_close_root(*args, **kwargs):
+        root = orig_create(*args, **kwargs)
+        root.after(20, lambda: root.destroy() if root.winfo_exists() else None)
+        return root
+
+    monkeypatch.setattr(pomo, "_create_tk_root", auto_close_root)
+
+    result = pomo.run_break_session(
+        break_seconds=240,
+        default_next_work_seconds=2400,
+        default_next_break_seconds=240,
+        stats={"today_sessions": 4, "streak_days": "5 Days 🔥"},
+        is_walk_break=False,
+        session_number=4,
+    )
+    assert result["plannedBreakSeconds"] == 240
+    assert result["isWalkBreak"] is False

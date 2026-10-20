@@ -307,16 +307,12 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
     stats = _load_summary_stats(current_work_seconds=work_result.get("actualWorkSeconds", 0))
     today_sessions = stats.get("today_sessions", 1)
 
-    # Walk break check: after every 2 sessions (e.g. session 2, 4, 6...), third session has 10 min break
-    is_walk_break = (today_sessions > 0 and today_sessions % 2 == 0)
-    effective_break_seconds = (10 * 60) if is_walk_break else break_seconds
-
     break_result = run_break_session(
-        break_seconds=effective_break_seconds,
+        break_seconds=break_seconds,
         default_next_work_seconds=WORK_TIME_SECONDS,
         default_next_break_seconds=BREAK_TIME_SECONDS,
         stats=stats,
-        is_walk_break=is_walk_break,
+        is_walk_break=False,
         session_number=today_sessions,
     )
 
@@ -343,7 +339,7 @@ def run_pomodoro_cycle(cycle_number, work_seconds, break_seconds):
         "sessionNote": "",
         "sessionType": break_result.get("sessionType", "study"),
         "activityType": break_result.get("sessionType", "study"),
-        "isWalkBreak": is_walk_break,
+        "isWalkBreak": False,
         "todaySessionNumber": today_sessions,
         "interactionLog": work_result["interactionLog"] + break_result["interactionLog"],
         "productivityRating": break_result.get("productivityRating", 0),
